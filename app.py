@@ -5,8 +5,9 @@ from flask import Flask, jsonify
 
 app = Flask(__name__)
 
+
 # ==================================
-# 1. AMBIL DATA BTC DARIPADA BINANCE
+# 1. BINANCE BTCUSDT DATA
 # ==================================
 
 def get_candles(interval):
@@ -15,16 +16,13 @@ def get_candles(interval):
         f"?symbol=BTCUSDT&interval={interval}&limit=100"
     )
 
-    req = urllib.request.Request(
+    request = urllib.request.Request(
         url,
         headers={"User-Agent": "BTC-AI-Server"}
     )
 
-    with urllib.request.urlopen(req, timeout=15) as response:
-        candles = json.loads(response.read().decode())
-
-    # Abaikan candle terakhir yang masih berjalan
-    closed_candles = candles[:-1]
+    with urllib.request.urlopen(request, timeout=15) as response:
+        raw_data = json.loads(response.read().decode())
 
     return [
         {
@@ -35,7 +33,7 @@ def get_candles(interval):
             "close": float(candle[4]),
             "volume": float(candle[5])
         }
-        for candle in closed_candles
+        for candle in raw_data[:-1]
     ]
 
 
@@ -59,16 +57,16 @@ def calculate_ema(values, period):
     if len(values) < period:
         return None
 
-    ema_value = sum(values[:period]) / period
+    ema = sum(values[:period]) / period
     multiplier = 2 / (period + 1)
 
     for price in values[period:]:
-        ema_value = (
+        ema = (
             price * multiplier
-            + ema_value * (1 - multiplier)
+            + ema * (1 - multiplier)
         )
 
-    return ema_value
+    return ema
 
 
 # ==================================
@@ -84,35 +82,127 @@ def calculate_rsi(values, period=14):
         for i in range(1, len(values))
     ]
 
-    recent_changes = changes[-period:]
+    recent = changes[-period:]
 
-    gains = [
-        change for change in recent_changes
-        if change > 0
-    ]
+    gains = [x for x in recent if x > 0]
+    losses = [-x for x in recent if x < 0]
 
-    losses = [
-        abs(change) for change in recent_changes
-        if change < 0
-    ]
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
 
-    average_gain = sum(gains) / period
-    average_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 100.0 if avg_gain > 0 else 50.0
 
-    if average_loss == 0:
-        return 100.0 if average_gain > 0 else 50.0
-
-    rs = average_gain / average_loss
+    rs = avg_gain / avg_loss
 
     return 100 - (100 / (1 + rs))
 
+# ==================================
+# 4. MARKET STRUCTURE ANALYSIS
+# ==================================
+
+def analyze_structure(candles):
+    highs = [c["high"] for c in candles]
+    lows = [c["low"] for c in candles]
+    closes = [c["close"] for c in candles]
+
+    swing_highs = []
+    swing_lows = []
+
+    # Detect confirmed swing points
+    for i in range(2, len(candles) - 2):
+
+        if (
+            highs[i] > highs[i - 1]
+            and highs[i] > highs[i - 2]
+            and highs[i] > highs[i + 1]
+            and highs[i] > highs[i + 2]
+        ):
+            swing_highs.append({
+                "index": i,
+                "price": highs[i]
+            })
+
+        if (
+            lows[i] < lows[i - 1]
+            and lows[i] < lows[i - 2]
+            and lows[i] < lows[i + 1]
+            and lows[i] < lows[i + 2]
+        ):
+            swing_lows.append({
+                "index": i,
+                "price": lows[i]
+            })
+
+    last_high = swing_highs[-1] if swing_highs else None
+    previous_high = (
+        swing_highs[-2] if len(swing_highs) >= 2 else None
+    )
+
+    last_low = swing_lows[-1] if swing_lows else None
+    previous_low = (
+        swing_lows[-2] if len(swing_lows) >= 2 else None
+    )
+
+    # High structure
+    if last_high and previous_high:
+        high_structure = (
+            "HH"
+            if last_high["price"] > previous_high["price"]
+            else "LH"
+        )
+    else:
+        high_structure = "INSUFFICIENT_DATA"
+
+    # Low structure
+    if last_low and previous_low:
+        low_structure = (
+            "HL"
+            if last_low["price"] > previous_low["price"]
+            else "LL"
+        )
+    else:
+        low_structure = "INSUFFICIENT_DATA"
+
+    current_price = closes[-1]
+
+    # Break of Structure
+    if last_high and current_price > last_high["price"]:
+        bos = "BULLISH_BOS"
+
+    elif last_low and current_price < last_low["price"]:
+        bos = "BEARISH_BOS"
+
+    else:
+        bos = "NO_CONFIRMED_BOS"
+
+    return {
+        "swing_high": (
+            round(last_high["price"], 2) if last_high else None
+        ),
+        "previous_swing_high": (
+            round(previous_high["price"], 2)
+            if previous_high else None
+        ),
+        "swing_low": (
+            round(last_low["price"], 2) if last_low else None
+        ),
+        "previous_swing_low": (
+            round(previous_low["price"], 2)
+            if previous_low else None
+        ),
+        "high_structure": high_structure,
+        "low_structure": low_structure,
+        "bos": bos
+    }
+
 
 # ==================================
-# 4. ANALYZE EACH TIMEFRAME
+# 5. TIMEFRAME ANALYSIS
 # ==================================
 
 def analyze_timeframe(candles):
-    closes = [candle["close"] for candle in candles]
+    closes = [c["close"] for c in candles]
 
     ema20 = calculate_ema(closes, 20)
     ema50 = calculate_ema(closes, 50)
@@ -120,10 +210,15 @@ def analyze_timeframe(candles):
 
     price = closes[-1]
 
+    if ema20 is None or ema50 is None or rsi is None:
+        raise ValueError("Not enough candle data")
+
     if price > ema20 > ema50:
         trend = "BULLISH"
+
     elif price < ema20 < ema50:
         trend = "BEARISH"
+
     else:
         trend = "NEUTRAL"
 
@@ -133,20 +228,18 @@ def analyze_timeframe(candles):
         "ema50": round(ema50, 2),
         "rsi14": round(rsi, 2),
         "trend": trend,
-        "last_closed_candle": candles[-1]["time"]
+        "market_structure": analyze_structure(candles)
     }
-
-
 # ==================================
-# 5. MULTI-TIMEFRAME ANALYSIS
+# 6. COMPLETE MARKET ANALYSIS
 # ==================================
 
 def analyze_market(data):
-    timeframes = data["timeframes"]
+    candles_by_tf = data["timeframes"]
 
     analysis = {
         timeframe: analyze_timeframe(candles)
-        for timeframe, candles in timeframes.items()
+        for timeframe, candles in candles_by_tf.items()
     }
 
     h4 = analysis["H4"]
@@ -157,36 +250,35 @@ def analyze_market(data):
         h4["trend"] == "BULLISH"
         and h1["trend"] == "BULLISH"
         and m15["trend"] == "BULLISH"
-        and 50 <= m15["rsi14"] < 70
     ):
-        decision = "BULLISH_SETUP"
+        decision = "BULLISH_BIAS"
 
     elif (
         h4["trend"] == "BEARISH"
         and h1["trend"] == "BEARISH"
         and m15["trend"] == "BEARISH"
-        and 30 < m15["rsi14"] <= 50
     ):
-        decision = "BEARISH_SETUP"
+        decision = "BEARISH_BIAS"
 
     else:
         decision = "WAIT"
 
     return {
-        "symbol": "BTCUSDT",
-        "exchange": "BINANCE",
+        "symbol": data["symbol"],
+        "exchange": data["exchange"],
         "decision": decision,
         "timeframes": analysis,
         "note": (
-            "Technical indicator analysis only. "
-            "Not a guaranteed trading signal. "
+            "Technical analysis only. "
+            "Swing points require two candles on each side. "
+            "BOS uses a simplified close-above/below-swing rule. "
             "No trades are executed."
         )
     }
 
 
 # ==================================
-# 6. SERVER ROUTES
+# 7. SERVER ROUTES
 # ==================================
 
 @app.route("/", methods=["GET"])
