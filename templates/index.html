@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BTC AI Dashboard</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 18px;
+            background: #0b1120;
+            color: #ffffff;
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: auto;
+        }
+
+        h1 {
+            font-size: 25px;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        .card {
+            background: #172033;
+            border: 1px solid #29364d;
+            border-radius: 12px;
+            padding: 18px;
+            margin-top: 15px;
+        }
+
+        .price {
+            font-size: 32px;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .value {
+            font-size: 20px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .muted {
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        .green {
+            color: #22c55e;
+        }
+
+        .red {
+            color: #ef4444;
+        }
+
+        .yellow {
+            color: #facc15;
+        }
+
+        iframe {
+            width: 100%;
+            height: 420px;
+            border: 0;
+            border-radius: 8px;
+        }
+
+        @media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            iframe {
+                height: 350px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+    <h1>BTC AI Dashboard</h1>
+    <div class="subtitle">BINANCE · BTCUSDT · LIVE MARKET MONITOR</div>
+
+    <div class="card">
+        <div class="muted">BITCOIN PRICE</div>
+        <div class="price" id="price">Loading...</div>
+        <div class="muted" id="updated">Waiting for data...</div>
+    </div>
+
+    <div class="card">
+        <h3>BTCUSDT Chart</h3>
+
+        <iframe
+            src="https://s.tradingview.com/widgetembed/?symbol=BINANCE%3ABTCUSDT&interval=15&theme=dark&style=1&locale=en&hide_top_toolbar=true&allow_symbol_change=false">
+        </iframe>
+    </div>
+
+    <div class="card">
+        <h3>Market Decision</h3>
+        <div class="value" id="decision">Loading...</div>
+    </div>
+
+    <div class="grid">
+
+        <div class="card">
+            <h3>H4 Trend</h3>
+            <div class="value" id="h4">--</div>
+            <div class="muted" id="h4rsi">RSI: --</div>
+        </div>
+
+        <div class="card">
+            <h3>H1 Trend</h3>
+            <div class="value" id="h1">--</div>
+            <div class="muted" id="h1rsi">RSI: --</div>
+        </div>
+
+        <div class="card">
+            <h3>M15 Trend</h3>
+            <div class="value" id="m15">--</div>
+            <div class="muted" id="m15rsi">RSI: --</div>
+        </div>
+
+    </div>
+
+    <div class="card">
+        <h3>Market Structure</h3>
+        <div id="structure">Loading...</div>
+    </div>
+
+</div>
+
+<script>
+async function loadDashboard() {
+    try {
+        const response = await fetch("/btc-analysis");
+
+        if (!response.ok) {
+            throw new Error("Server error: " + response.status);
+        }
+
+        const data = await response.json();
+
+        const h4 = data.timeframes.H4;
+        const h1 = data.timeframes.H1;
+        const m15 = data.timeframes.M15;
+
+        document.getElementById("price").textContent =
+            "$" + h4.price.toLocaleString("en-US");
+
+        document.getElementById("updated").textContent =
+            "Last updated: " + new Date().toLocaleTimeString();
+
+        const decision = document.getElementById("decision");
+        decision.textContent = data.decision;
+        decision.className = "value " +
+            (data.decision === "BULLISH_BIAS" ? "green" :
+             data.decision === "BEARISH_BIAS" ? "red" : "yellow");
+
+        function showTrend(id, trend) {
+            const element = document.getElementById(id);
+            element.textContent = trend;
+            element.className = "value " +
+                (trend === "BULLISH" ? "green" :
+                 trend === "BEARISH" ? "red" : "yellow");
+        }
+
+        showTrend("h4", h4.trend);
+        showTrend("h1", h1.trend);
+        showTrend("m15", m15.trend);
+
+        document.getElementById("h4rsi").textContent =
+            "RSI: " + h4.rsi14;
+
+        document.getElementById("h1rsi").textContent =
+            "RSI: " + h1.rsi14;
+
+        document.getElementById("m15rsi").textContent =
+            "RSI: " + m15.rsi14;
+
+        function structureText(tf, label) {
+            const s = tf.market_structure;
+
+            return `
+                <div class="card">
+                    <b>${label}</b><br><br>
+                    High: ${s.high_structure}<br>
+                    Low: ${s.low_structure}<br>
+                    BOS: ${s.bos}<br>
+                    Swing High: ${s.swing_high}<br>
+                    Swing Low: ${s.swing_low}
+                </div>
+            `;
+        }
+
+        document.getElementById("structure").innerHTML =
+            structureText(h4, "H4") +
+            structureText(h1, "H1") +
+            structureText(m15, "M15");
+
+    } catch (error) {
+        document.getElementById("price").textContent = "Data unavailable";
+        document.getElementById("updated").textContent = error.message;
+    }
+}
+
+loadDashboard();
+setInterval(loadDashboard, 30000);
+</script>
+
+</body>
+</html>
