@@ -1,40 +1,58 @@
 
-import os
-import hmac
-from flask import Flask, request, jsonify
+import json
+import urllib.request
+from flask import Flask, jsonify
 
 app = Flask(__name__)
-
-WEBHOOK_SECRET = os.environ.get("TRADINGVIEW_WEBHOOK_SECRET")
 
 @app.route("/", methods=["GET"])
 def home():
     return "BTC AI Server is running!"
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.get_json(silent=True)
-
-    if not isinstance(data, dict):
-        return jsonify({"error": "Invalid JSON"}), 400
-
-    if not WEBHOOK_SECRET:
-        return jsonify({"error": "Server not configured"}), 500
-
-    received_secret = str(data.get("secret", ""))
-
-    if not hmac.compare_digest(received_secret, WEBHOOK_SECRET):
-        return jsonify({"error": "Unauthorized"}), 401
-
-    data.pop("secret", None)
-
-    print(
-        "BTC signal received:",
-        data.get("symbol"),
-        list(data.get("timeframes", {}).keys())
+def get_candles(interval):
+    url = (
+        "https://api.binance.com/api/v3/klines"
+        f"?symbol=BTCUSDT&interval={interval}&limit=51"
     )
 
-    return jsonify({
-        "status": "received",
-        "message": "BTC data received successfully"
-    }), 200
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "BTC-AI-Server"}
+    )
+
+    with urllib.request.urlopen(req, timeout=10) as response:
+        candles = json.loads(response.read().decode())
+
+    # Abaikan candle terakhir yang masih berjalan
+    return [
+        {
+            "time": candle[0],
+            "open": float(candle[1]),
+            "high": float(candle[2]),
+            "low": float(candle[3]),
+            "close": float(candle[4]),
+            "volume": float(candle[5])
+        }
+        for candle in candles[:-1]
+    ]
+
+@app.route("/btc-data", methods=["GET"])
+def btc_data():
+    try:
+        data = {
+            "symbol": "BTCUSDT",
+            "exchange": "BINANCE",
+            "timeframes": {
+                "M15": get_candles("15m"),
+                "H1": get_candles("1h"),
+                "H4": get_candles("4h")
+            }
+        }
+
+        return jsonify(data), 200
+
+    except Exception as error:
+        return jsonify({
+            "status": "error",
+            "message": str(error)
+        }), 502
