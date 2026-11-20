@@ -1,41 +1,56 @@
 
 import json
 import urllib.request
+import urllib.error
 from flask import Flask, jsonify, render_template
 
 app = Flask(__name__)
 
+BINANCE_URL = "https://data-api.binance.vision/api/v3"
 
-# ==================================
-# 1. BINANCE BTCUSDT DATA
-# ==================================
 
-def get_candles(interval):
+# ==============================
+# GET BINANCE CANDLES
+# ==============================
+
+def get_candles(interval, limit=200):
     url = (
-        "https://data-api.binance.vision/api/v3/klines"
-        f"?symbol=BTCUSDT&interval={interval}&limit=100"
+        f"{BINANCE_URL}/klines"
+        f"?symbol=BTCUSDT&interval={interval}&limit={limit}"
     )
 
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "BTC-AI-Server"}
+        headers={"User-Agent": "BTC-Analyzer/1.0"}
     )
 
     with urllib.request.urlopen(request, timeout=15) as response:
-        raw_data = json.loads(response.read().decode())
+        raw_data = json.loads(response.read().decode("utf-8"))
 
-    return [
-        {
-            "time": candle[0],
-            "open": float(candle[1]),
-            "high": float(candle[2]),
-            "low": float(candle[3]),
-            "close": float(candle[4]),
-            "volume": float(candle[5])
-        }
-        for candle in raw_data[:-1]
-    ]
+    # Abaikan candle yang masih sedang terbentuk
+    closed_data = raw_data[:-1]
 
+    candles = []
+
+    for item in closed_data:
+        candles.append({
+            "time": int(item[0]),
+            "open": float(item[1]),
+            "high": float(item[2]),
+            "low": float(item[3]),
+            "close": float(item[4]),
+            "volume": float(item[5])
+        })
+
+    if len(candles) < 60:
+        raise ValueError("Data candle tidak mencukupi.")
+
+    return candles
+
+
+# ==============================
+# GET MARKET DATA
+# ==============================
 
 def get_market_data():
     return {
@@ -49,235 +64,216 @@ def get_market_data():
     }
 
 
-# ==================================
-# 2. EMA CALCULATION
-# ==================================
+# ==============================
+# EMA
+# ==============================
 
 def calculate_ema(values, period):
     if len(values) < period:
         return None
 
-    ema = sum(values[:period]) / period
     multiplier = 2 / (period + 1)
 
+    ema = sum(values[:period]) / period
+
     for price in values[period:]:
-        ema = (
-            price * multiplier
-            + ema * (1 - multiplier)
-        )
+        ema = (price * multiplier) + (ema * (1 - multiplier))
 
-    return ema
+    return round(ema, 2)
 
 
-# ==================================
-# 3. RSI CALCULATION
-# ==================================
+# ==============================
+# RSI
+# ==============================
 
 def calculate_rsi(values, period=14):
     if len(values) <= period:
         return None
 
-    changes = [
-        values[i] - values[i - 1]
-        for i in range(1, len(values))
-    ]
+    gains = []
+    losses = []
 
-    recent = changes[-period:]
+    for i in range(1, len(values)):
+        change = values[i] - values[i - 1]
+        gains.append(max(change, 0))
+        losses.append(max(-change, 0))
 
-    gains = [x for x in recent if x > 0]
-    losses = [-x for x in recent if x < 0]
+    average_gain = sum(gains[:period]) / period
+    average_loss = sum(losses[:period]) / period
 
-    avg_gain = sum(gains) / period
-    avg_loss = sum(losses) / period
+    for i in range(period, len(gains)):
+        average_gain = (
+            (average_gain * (period - 1)) + gains[i]
+        ) / period
 
-    if avg_loss == 0:
-        return 100.0 if avg_gain > 0 else 50.0
+        average_loss = (
+            (average_loss * (period - 1)) + losses[i]
+        ) / period
 
-    rs = avg_gain / avg_loss
+    if average_loss == 0:
+        return 100.0
 
-    return 100 - (100 / (1 + rs))
+    rs = average_gain / average_loss
+    rsi = 100 - (100 / (1 + rs))
 
-# ==================================
-# 4. MARKET STRUCTURE ANALYSIS
-# ==================================
+    return round(rsi, 2)
+
+
+# ==============================
+# MARKET STRUCTURE
+# ==============================
 
 def analyze_structure(candles):
-    highs = [c["high"] for c in candles]
-    lows = [c["low"] for c in candles]
-    closes = [c["close"] for c in candles]
+    highs = []
+    lows = []
 
-    swing_highs = []
-    swing_lows = []
-
-    # Detect confirmed swing points
     for i in range(2, len(candles) - 2):
+        high = candles[i]["high"]
+        low = candles[i]["low"]
 
         if (
-            highs[i] > highs[i - 1]
-            and highs[i] > highs[i - 2]
-            and highs[i] > highs[i + 1]
-            and highs[i] > highs[i + 2]
+            high > candles[i - 1]["high"]
+            and high > candles[i - 2]["high"]
+            and high > candles[i + 1]["high"]
+            and high > candles[i + 2]["high"]
         ):
-            swing_highs.append({
-                "index": i,
-                "price": highs[i]
-            })
+            highs.append(high)
 
         if (
-            lows[i] < lows[i - 1]
-            and lows[i] < lows[i - 2]
-            and lows[i] < lows[i + 1]
-            and lows[i] < lows[i + 2]
+            low < candles[i - 1]["low"]
+            and low < candles[i - 2]["low"]
+            and low < candles[i + 1]["low"]
+            and low < candles[i + 2]["low"]
         ):
-            swing_lows.append({
-                "index": i,
-                "price": lows[i]
-            })
+            lows.append(low)
 
-    last_high = swing_highs[-1] if swing_highs else None
-    previous_high = (
-        swing_highs[-2] if len(swing_highs) >= 2 else None
+    if len(highs) < 2 or len(lows) < 2:
+        return {
+            "high_structure": "UNKNOWN",
+            "low_structure": "UNKNOWN",
+            "swing_high": None,
+            "swing_low": None,
+            "previous_swing_high": None,
+            "previous_swing_low": None,
+            "bos": "NO_CONFIRMED_BOS"
+        }
+
+    previous_high = highs[-2]
+    latest_high = highs[-1]
+
+    previous_low = lows[-2]
+    latest_low = lows[-1]
+
+    high_structure = (
+        "HH" if latest_high > previous_high else "LH"
     )
 
-    last_low = swing_lows[-1] if swing_lows else None
-    previous_low = (
-        swing_lows[-2] if len(swing_lows) >= 2 else None
+    low_structure = (
+        "HL" if latest_low > previous_low else "LL"
     )
 
-    # High structure
-    if last_high and previous_high:
-        high_structure = (
-            "HH"
-            if last_high["price"] > previous_high["price"]
-            else "LH"
-        )
-    else:
-        high_structure = "INSUFFICIENT_DATA"
+    last_close = candles[-1]["close"]
 
-    # Low structure
-    if last_low and previous_low:
-        low_structure = (
-            "HL"
-            if last_low["price"] > previous_low["price"]
-            else "LL"
-        )
-    else:
-        low_structure = "INSUFFICIENT_DATA"
-
-    current_price = closes[-1]
-
-    # Break of Structure
-    if last_high and current_price > last_high["price"]:
+    if last_close > latest_high:
         bos = "BULLISH_BOS"
-
-    elif last_low and current_price < last_low["price"]:
+    elif last_close < latest_low:
         bos = "BEARISH_BOS"
-
     else:
         bos = "NO_CONFIRMED_BOS"
 
     return {
-        "swing_high": (
-            round(last_high["price"], 2) if last_high else None
-        ),
-        "previous_swing_high": (
-            round(previous_high["price"], 2)
-            if previous_high else None
-        ),
-        "swing_low": (
-            round(last_low["price"], 2) if last_low else None
-        ),
-        "previous_swing_low": (
-            round(previous_low["price"], 2)
-            if previous_low else None
-        ),
         "high_structure": high_structure,
         "low_structure": low_structure,
+        "swing_high": latest_high,
+        "swing_low": latest_low,
+        "previous_swing_high": previous_high,
+        "previous_swing_low": previous_low,
         "bos": bos
     }
 
 
-# ==================================
-# 5. TIMEFRAME ANALYSIS
-# ==================================
+# ==============================
+# ANALYZE EACH TIMEFRAME
+# ==============================
 
 def analyze_timeframe(candles):
-    closes = [c["close"] for c in candles]
+    closes = [candle["close"] for candle in candles]
 
+    price = closes[-1]
     ema20 = calculate_ema(closes, 20)
     ema50 = calculate_ema(closes, 50)
     rsi = calculate_rsi(closes)
 
-    price = closes[-1]
-
-    if ema20 is None or ema50 is None or rsi is None:
-        raise ValueError("Not enough candle data")
-
-    if price > ema20 > ema50:
+    if ema20 is None or ema50 is None:
+        trend = "UNKNOWN"
+    elif price > ema20 and ema20 > ema50:
         trend = "BULLISH"
-
-    elif price < ema20 < ema50:
+    elif price < ema20 and ema20 < ema50:
         trend = "BEARISH"
-
     else:
-        trend = "NEUTRAL"
+        trend = "SIDEWAYS"
 
     return {
         "price": round(price, 2),
-        "ema20": round(ema20, 2),
-        "ema50": round(ema50, 2),
-        "rsi14": round(rsi, 2),
+        "ema20": ema20,
+        "ema50": ema50,
+        "rsi14": rsi,
         "trend": trend,
         "market_structure": analyze_structure(candles)
     }
-# ==================================
-# 6. COMPLETE MARKET ANALYSIS
-# ==================================
+
+
+# ==============================
+# LONG / SHORT SIGNAL ENGINE
+# ==============================
+
 def analyze_market(data):
-    h4 = data["timeframes"]["H4"]
-    h1 = data["timeframes"]["H1"]
-    m15 = data["timeframes"]["M15"]
+    timeframes = data["timeframes"]
+
+    h4 = timeframes["H4"]
+    h1 = timeframes["H1"]
+    m15 = timeframes["M15"]
 
     entry = m15["price"]
     structure = m15["market_structure"]
 
-    h4_trend = h4["trend"]
-    h1_trend = h1["trend"]
-    m15_trend = m15["trend"]
-    bos = structure["bos"]
-
     signal = "WAIT"
     stop_loss = None
     take_profit = None
+
     reason = "Belum ada confirmation yang lengkap."
 
     if (
-        h4_trend == "BULLISH"
-        and h1_trend == "BULLISH"
-        and m15_trend == "BULLISH"
-        and bos == "BULLISH_BOS"
+        h4["trend"] == "BULLISH"
+        and h1["trend"] == "BULLISH"
+        and m15["trend"] == "BULLISH"
+        and structure["bos"] == "BULLISH_BOS"
     ):
         swing_low = structure["swing_low"]
 
-        if swing_low < entry:
+        if swing_low is not None and swing_low < entry:
             signal = "LONG"
-            stop_loss = swing_low
-            take_profit = entry + (entry - stop_loss) * 2
-            reason = "Semua timeframe bullish dan M15 mengesahkan bullish BOS."
+            stop_loss = round(swing_low, 2)
+            take_profit = round(
+                entry + ((entry - stop_loss) * 2), 2
+            )
+            reason = "Semua timeframe bullish dengan M15 bullish BOS."
 
     elif (
-        h4_trend == "BEARISH"
-        and h1_trend == "BEARISH"
-        and m15_trend == "BEARISH"
-        and bos == "BEARISH_BOS"
+        h4["trend"] == "BEARISH"
+        and h1["trend"] == "BEARISH"
+        and m15["trend"] == "BEARISH"
+        and structure["bos"] == "BEARISH_BOS"
     ):
         swing_high = structure["swing_high"]
 
-        if swing_high > entry:
+        if swing_high is not None and swing_high > entry:
             signal = "SHORT"
-            stop_loss = swing_high
-            take_profit = entry - (stop_loss - entry) * 2
-            reason = "Semua timeframe bearish dan M15 mengesahkan bearish BOS."
+            stop_loss = round(swing_high, 2)
+            take_profit = round(
+                entry - ((stop_loss - entry) * 2), 2
+            )
+            reason = "Semua timeframe bearish dengan M15 bearish BOS."
 
     return {
         "decision": signal,
@@ -288,33 +284,107 @@ def analyze_market(data):
         "take_profit": take_profit,
         "risk_reward": "1:2" if signal != "WAIT" else None,
         "signal_reason": reason,
-        "timeframes": data["timeframes"],
-        "note": "Analisis teknikal sahaja. Tiada order sebenar dihantar."
-    } 
+        "timeframes": timeframes,
+        "note": (
+            "Analisis teknikal sahaja. "
+            "Tiada order sebenar dihantar. "
+            "Signal bukan jaminan keuntungan."
+        )
+    }
 
+
+# ==============================
+# DASHBOARD
+# ==============================
+
+@app.route("/", methods=["GET"])
+def home():
+    return render_template("index.html")
+
+
+# ==============================
+# BTC DATA API
+# ==============================
 
 @app.route("/btc-data", methods=["GET"])
 def btc_data():
     try:
-        return jsonify(get_market_data()), 200
+        data = get_market_data()
+
+        result = {
+            "symbol": data["symbol"],
+            "exchange": data["exchange"],
+            "timeframes": {
+                name: analyze_timeframe(candles)
+                for name, candles in data["timeframes"].items()
+            }
+        }
+
+        return jsonify(result)
 
     except Exception as error:
-        return jsonify({
-            "status": "error",
-            "message": str(error)
-        }), 502
+        app.logger.exception("BTC data error")
+        return jsonify({"error": str(error)}), 500
 
+
+# ==============================
+# BTC ANALYSIS API
+# ==============================
 
 @app.route("/btc-analysis", methods=["GET"])
 def btc_analysis():
     try:
         data = get_market_data()
-        result = analyze_market(data)
 
-        return jsonify(result), 200
+        analyzed_data = {
+            "symbol": data["symbol"],
+            "exchange": data["exchange"],
+            "timeframes": {
+                name: analyze_timeframe(candles)
+                for name, candles in data["timeframes"].items()
+            }
+        }
+
+        result = analyze_market(analyzed_data)
+
+        return jsonify(result)
 
     except Exception as error:
+        app.logger.exception("BTC analysis error")
+        return jsonify({"error": str(error)}), 500
+
+
+# ==============================
+# LIVE BTC PRICE API
+# ==============================
+
+@app.route("/btc-price", methods=["GET"])
+def btc_price():
+    try:
+        url = f"{BINANCE_URL}/ticker/price?symbol=BTCUSDT"
+
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "BTC-Analyzer/1.0"}
+        )
+
+        with urllib.request.urlopen(request, timeout=10) as response:
+            result = json.loads(response.read().decode("utf-8"))
+
         return jsonify({
-            "status": "error",
-            "message": str(error)
-        }), 502
+            "symbol": result["symbol"],
+            "price": float(result["price"]),
+            "exchange": "BINANCE"
+        })
+
+    except Exception as error:
+        app.logger.exception("BTC price error")
+        return jsonify({"error": str(error)}), 500
+
+
+# ==============================
+# START SERVER
+# ==============================
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
