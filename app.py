@@ -11,7 +11,7 @@ def home():
 
 def get_candles(interval):
     url = (
-        "https://api.binance.com/api/v3/klines"
+        "https://data-api.binance.vision/api/v3/klines"
         f"?symbol=BTCUSDT&interval={interval}&limit=51"
     )
 
