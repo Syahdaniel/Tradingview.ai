@@ -233,59 +233,66 @@ def analyze_timeframe(candles):
 # ==================================
 # 6. COMPLETE MARKET ANALYSIS
 # ==================================
-
 def analyze_market(data):
-    candles_by_tf = data["timeframes"]
+    h4 = data["timeframes"]["H4"]
+    h1 = data["timeframes"]["H1"]
+    m15 = data["timeframes"]["M15"]
 
-    analysis = {
-        timeframe: analyze_timeframe(candles)
-        for timeframe, candles in candles_by_tf.items()
-    }
+    entry = m15["price"]
+    structure = m15["market_structure"]
 
-    h4 = analysis["H4"]
-    h1 = analysis["H1"]
-    m15 = analysis["M15"]
+    h4_trend = h4["trend"]
+    h1_trend = h1["trend"]
+    m15_trend = m15["trend"]
+    bos = structure["bos"]
+
+    signal = "WAIT"
+    stop_loss = None
+    take_profit = None
+    reason = "Belum ada confirmation yang lengkap."
 
     if (
-        h4["trend"] == "BULLISH"
-        and h1["trend"] == "BULLISH"
-        and m15["trend"] == "BULLISH"
+        h4_trend == "BULLISH"
+        and h1_trend == "BULLISH"
+        and m15_trend == "BULLISH"
+        and bos == "BULLISH_BOS"
     ):
-        decision = "BULLISH_BIAS"
+        swing_low = structure["swing_low"]
+
+        if swing_low < entry:
+            signal = "LONG"
+            stop_loss = swing_low
+            take_profit = entry + (entry - stop_loss) * 2
+            reason = "Semua timeframe bullish dan M15 mengesahkan bullish BOS."
 
     elif (
-        h4["trend"] == "BEARISH"
-        and h1["trend"] == "BEARISH"
-        and m15["trend"] == "BEARISH"
+        h4_trend == "BEARISH"
+        and h1_trend == "BEARISH"
+        and m15_trend == "BEARISH"
+        and bos == "BEARISH_BOS"
     ):
-        decision = "BEARISH_BIAS"
+        swing_high = structure["swing_high"]
 
-    else:
-        decision = "WAIT"
+        if swing_high > entry:
+            signal = "SHORT"
+            stop_loss = swing_high
+            take_profit = entry - (stop_loss - entry) * 2
+            reason = "Semua timeframe bearish dan M15 mengesahkan bearish BOS."
 
     return {
-        "symbol": data["symbol"],
+        "decision": signal,
         "exchange": data["exchange"],
-        "decision": decision,
-        "timeframes": analysis,
-        "note": (
-            "Technical analysis only. "
-            "Swing points require two candles on each side. "
-            "BOS uses a simplified close-above/below-swing rule. "
-            "No trades are executed."
-        )
-    }
+        "symbol": data["symbol"],
+        "entry": entry if signal != "WAIT" else None,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "risk_reward": "1:2" if signal != "WAIT" else None,
+        "signal_reason": reason,
+        "timeframes": data["timeframes"],
+        "note": "Analisis teknikal sahaja. Tiada order sebenar dihantar."
+    } 
 
 
-# ==================================
-# 7. SERVER ROUTES
-# ==================================
-
-
-@app.route("/", methods=["GET"])
-def home():
-    return render_template("index.html")
-    
 @app.route("/btc-data", methods=["GET"])
 def btc_data():
     try:
