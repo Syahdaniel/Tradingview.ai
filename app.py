@@ -1,7 +1,7 @@
 
 import json
 import urllib.request
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template
 
 app = Flask(__name__)
 
@@ -281,11 +281,11 @@ def analyze_market(data):
 # 7. SERVER ROUTES
 # ==================================
 
+
 @app.route("/", methods=["GET"])
 def home():
-    return "BTC AI Server is running!"
-
-
+    return render_template("index.html")
+    
 @app.route("/btc-data", methods=["GET"])
 def btc_data():
     try:
