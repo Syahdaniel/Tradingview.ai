@@ -118,6 +118,36 @@
         <h3>Market Decision</h3>
         <div class="value" id="decision">Loading...</div>
     </div>
+    
+    <div class="grid">
+
+        <div class="card">
+            <h3>Entry Price</h3>
+            <div class="value" id="entry">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Stop Loss</h3>
+            <div class="value" id="stoploss">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Take Profit</h3>
+            <div class="value" id="takeprofit">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Risk Reward</h3>
+            <div class="value" id="riskreward">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Signal Reason</h3>
+            <div class="value" id="reason">--</div>
+        </div>
+
+    </div>
+
 
     <div class="grid">
 
@@ -149,6 +179,7 @@
 </div>
 
 <script>
+
 async function loadDashboard() {
     try {
         const response = await fetch("/btc-analysis");
@@ -172,8 +203,23 @@ async function loadDashboard() {
         const decision = document.getElementById("decision");
         decision.textContent = data.decision;
         decision.className = "value " +
-            (data.decision === "BULLISH_BIAS" ? "green" :
-             data.decision === "BEARISH_BIAS" ? "red" : "yellow");
+            (data.decision === "LONG" ? "green" :
+             data.decision === "SHORT" ? "red" : "yellow");
+
+        document.getElementById("entry").textContent =
+            data.entry == null ? "--" : data.entry;
+
+        document.getElementById("stoploss").textContent =
+            data.stop_loss == null ? "--" : data.stop_loss;
+
+        document.getElementById("takeprofit").textContent =
+            data.take_profit == null ? "--" : data.take_profit;
+
+        document.getElementById("riskreward").textContent =
+            data.risk_reward || "--";
+
+        document.getElementById("reason").textContent =
+            data.signal_reason || "--";
 
         function showTrend(id, trend) {
             const element = document.getElementById(id);
@@ -187,14 +233,9 @@ async function loadDashboard() {
         showTrend("h1", h1.trend);
         showTrend("m15", m15.trend);
 
-        document.getElementById("h4rsi").textContent =
-            "RSI: " + h4.rsi14;
-
-        document.getElementById("h1rsi").textContent =
-            "RSI: " + h1.rsi14;
-
-        document.getElementById("m15rsi").textContent =
-            "RSI: " + m15.rsi14;
+        document.getElementById("h4rsi").textContent = "RSI: " + h4.rsi14;
+        document.getElementById("h1rsi").textContent = "RSI: " + h1.rsi14;
+        document.getElementById("m15rsi").textContent = "RSI: " + m15.rsi14;
 
         function structureText(tf, label) {
             const s = tf.market_structure;
@@ -221,6 +262,7 @@ async function loadDashboard() {
         document.getElementById("updated").textContent = error.message;
     }
 }
+
 
 loadDashboard();
 setInterval(loadDashboard, 30000);
