@@ -452,7 +452,7 @@ def btc_analysis():
 
 @app.route("/btc-intelligence")
 def btc_intelligence():
-    futures = get_bybit_futures_data()
+    futures = get_okx_futures_data()
     try:
         candles = get_candles("15m", 100)
         spot_price = candles[-1]["close"]
