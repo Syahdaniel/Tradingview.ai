@@ -279,109 +279,187 @@ def analyze_market(data):
 # HISTORICAL BACKTEST
 # =====================================
 
-def run_backtest(candles, fee_percent=0.0004):
-    """
-    EMA20/EMA50 trend strategy.
-    Entry at next candle open.
-    Stop = 1.5 ATR; target = 2R.
-    If stop and target hit in the same candle, stop is assumed first.
-    """
+
+def run_backtest(candles, fee_percent=0.0004, slippage_percent=0.0002,
+                 atr_multiplier=1.5, reward_risk=2.0, max_holding_bars=24):
 
     trades = []
-    closes = [c["close"] for c in candles]
+    equity = 1.0
+    peak_equity = 1.0
+    max_drawdown = 0.0
+    i = 60
 
-    for i in range(60, len(candles) - 1):
-        history = candles[:i]
-        price = closes[i - 1]
+    while i < len(candles) - 1:
+        history = candles[:i + 1]
+        closes = [c["close"] for c in history]
 
-        ema20 = calculate_ema(closes[:i], 20)
-        ema50 = calculate_ema(closes[:i], 50)
-        rsi = calculate_rsi(closes[:i])
+        ema20 = calculate_ema(closes, 20)
+        ema50 = calculate_ema(closes, 50)
+        rsi = calculate_rsi(closes)
         atr = calculate_atr(history)
 
-        if not ema20 or not ema50 or not atr or not rsi:
+        if ema20 is None or ema50 is None or rsi is None or atr is None or atr <= 0:
+            i += 1
             continue
 
+        price = closes[-1]
         direction = None
 
-        if price > ema20 and ema20 > ema50 and rsi > 50:
+        if price > ema20 and ema20 > ema50 and rsi >= 52:
             direction = "LONG"
-        elif price < ema20 and ema20 < ema50 and rsi < 50:
+        elif price < ema20 and ema20 < ema50 and rsi <= 48:
             direction = "SHORT"
 
         if direction is None:
+            i += 1
             continue
 
-        entry = candles[i]["open"]
-        risk = atr * 1.5
+        entry_bar = i + 1
+        raw_entry = candles[entry_bar]["open"]
+
+        if direction == "LONG":
+            entry = raw_entry * (1 + slippage_percent)
+        else:
+            entry = raw_entry * (1 - slippage_percent)
+
+        risk = atr * atr_multiplier
 
         if direction == "LONG":
             stop = entry - risk
-            target = entry + (risk * 2)
+            target = entry + risk * reward_risk
         else:
             stop = entry + risk
-            target = entry - (risk * 2)
+            target = entry - risk * reward_risk
 
-        outcome = "OPEN"
-        exit_price = candles[i]["close"]
+        last_bar = min(
+            entry_bar + max_holding_bars - 1,
+            len(candles) - 1
+        )
 
-        # Maximum holding period: 24 candles
-        for future in candles[i:min(i + 25, len(candles))]:
+        exit_price = None
+        exit_bar = entry_bar
+        exit_reason = "TIME_EXIT"
+
+        for j in range(entry_bar, last_bar + 1):
+            bar = candles[j]
+
             if direction == "LONG":
-                stop_hit = future["low"] <= stop
-                target_hit = future["high"] >= target
+                stop_hit = bar["low"] <= stop
+                target_hit = bar["high"] >= target
             else:
-                stop_hit = future["high"] >= stop
-                target_hit = future["low"] <= target
+                stop_hit = bar["high"] >= stop
+                target_hit = bar["low"] <= target
 
+            # Conservative: SL first if both hit
             if stop_hit:
-                outcome = "LOSS"
                 exit_price = stop
+                exit_reason = "STOP_LOSS"
+                exit_bar = j
                 break
 
             if target_hit:
-                outcome = "WIN"
                 exit_price = target
+                exit_reason = "TAKE_PROFIT"
+                exit_bar = j
                 break
 
-        if outcome == "OPEN":
-            continue
+        if exit_price is None:
+            exit_bar = last_bar
+            exit_price = candles[last_bar]["close"]
 
         if direction == "LONG":
-            gross_return = (exit_price - entry) / entry
+            executed_exit = exit_price * (1 - slippage_percent)
+            gross_return = (executed_exit - entry) / entry
         else:
-            gross_return = (entry - exit_price) / entry
+            executed_exit = exit_price * (1 + slippage_percent)
+            gross_return = (entry - executed_exit) / entry
 
         net_return = gross_return - (fee_percent * 2)
 
+        equity *= max(0, 1 + net_return)
+        peak_equity = max(peak_equity, equity)
+
+        drawdown = (peak_equity - equity) / peak_equity * 100
+        max_drawdown = max(max_drawdown, drawdown)
+
         trades.append({
             "direction": direction,
+            "entry_time": candles[entry_bar]["time"],
+            "exit_time": candles[exit_bar]["time"],
             "entry": round(entry, 2),
-            "exit": round(exit_price, 2),
-            "result": outcome,
-            "return_percent": round(net_return * 100, 4)
+            "exit": round(executed_exit, 2),
+            "result": "WIN" if net_return > 0 else "LOSS",
+            "exit_reason": exit_reason,
+            "gross_return_percent": round(gross_return * 100, 4),
+            "net_return_percent": round(net_return * 100, 4),
+            "equity_percent": round((equity - 1) * 100, 2)
         })
 
-    total = len(trades)
-    wins = sum(1 for t in trades if t["return_percent"] > 0)
-    losses = total - wins
+        # No overlapping trades
+        i = max(exit_bar, i + 1)
 
-    win_rate = (wins / total * 100) if total else 0
-    total_return = sum(t["return_percent"] for t in trades)
+    total = len(trades)
+    wins = [t for t in trades if t["net_return_percent"] > 0]
+    losses = [t for t in trades if t["net_return_percent"] <= 0]
+
+    gross_profit = sum(t["net_return_percent"] for t in wins)
+    gross_loss = abs(sum(t["net_return_percent"] for t in losses))
+
+    def direction_stats(name):
+        selected = [t for t in trades if t["direction"] == name]
+        won = [t for t in selected if t["net_return_percent"] > 0]
+        lost = [t for t in selected if t["net_return_percent"] <= 0]
+
+        gp = sum(t["net_return_percent"] for t in won)
+        gl = abs(sum(t["net_return_percent"] for t in lost))
+
+        return {
+            "trades": len(selected),
+            "wins": len(won),
+            "losses": len(lost),
+            "win_rate_percent": round(
+                len(won) / len(selected) * 100, 2
+            ) if selected else 0,
+            "net_return_percent": round(
+                sum(t["net_return_percent"] for t in selected), 2
+            ),
+            "profit_factor": round(gp / gl, 3) if gl else None
+        }
 
     return {
         "symbol": "BTCUSDT",
         "timeframe": "15m",
+        "strategy": "EMA20/EMA50 + RSI + ATR",
         "total_trades": total,
-        "wins": wins,
-        "losses": losses,
-        "win_rate_percent": round(win_rate, 2),
-        "net_return_percent": round(total_return, 2),
-        "fee_per_side_percent": fee_percent * 100,
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate_percent": round(
+            len(wins) / total * 100, 2
+        ) if total else 0,
+        "net_return_percent": round((equity - 1) * 100, 2),
+        "profit_factor": round(
+            gross_profit / gross_loss, 3
+        ) if gross_loss else None,
+        "expectancy_per_trade_percent": round(
+            sum(t["net_return_percent"] for t in trades) / total, 4
+        ) if total else 0,
+        "max_drawdown_percent": round(max_drawdown, 2),
+        "long": direction_stats("LONG"),
+        "short": direction_stats("SHORT"),
+        "assumptions": {
+            "fee_per_side_percent": fee_percent * 100,
+            "slippage_per_side_percent": slippage_percent * 100,
+            "stop_atr_multiplier": atr_multiplier,
+            "reward_risk": reward_risk,
+            "max_holding_bars": max_holding_bars,
+            "funding_included": False,
+            "same_candle_sl_tp": "Stop loss assumed first"
+        },
         "trades": trades[-30:],
         "warning": (
-            "Historical simulation only. Results do not predict "
-            "future performance. Slippage and funding are not included."
+            "Historical simulation only. Funding, market impact "
+            "and liquidation are not included. Test on unseen "
+            "historical data before live trading."
         )
     }
 
