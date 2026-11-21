@@ -116,29 +116,123 @@ def atr_series(candles, period=14):
     return result
 
 
-def timeframe_analysis(interval, label):
-    candles = get_candles(interval, 250)
-    closes = [c["close"] for c in candles]
-    if len(closes) < 60:
-        raise RuntimeError(f"Data {label} tidak mencukupi")
-    ema20 = ema_series(closes, 20)
-    ema50 = ema_series(closes, 50)
-    rsi = rsi_series(closes, 14)
-    last = len(closes) - 1
-    price = closes[last]
-    trend = "BULLISH" if ema20[last] > ema50[last] else "BEARISH"
-    momentum = "BULLISH" if rsi[last] is not None and rsi[last] >= 55 else (
-        "BEARISH" if rsi[last] is not None and rsi[last] <= 45 else "NEUTRAL"
+
+def build_analysis():
+    m15 = timeframe_analysis("15m", "M15")
+    h1 = timeframe_analysis("1h", "H1")
+    h4 = timeframe_analysis("4h", "H4")
+
+    bullish = sum(
+        x["trend"] == "BULLISH"
+        for x in (m15, h1, h4)
     )
+
+    bearish = sum(
+        x["trend"] == "BEARISH"
+        for x in (m15, h1, h4)
+    )
+
+    long_confirmed = (
+        bullish >= 2
+        and m15["momentum"] == "BULLISH"
+        and h4["trend"] == "BULLISH"
+    )
+
+    short_confirmed = (
+        bearish >= 2
+        and m15["momentum"] == "BEARISH"
+        and h4["trend"] == "BEARISH"
+    )
+
+    if long_confirmed:
+        decision = "LONG"
+        reason = "Trend major bullish dan momentum M15 bullish."
+    elif short_confirmed:
+        decision = "SHORT"
+        reason = "Trend major bearish dan momentum M15 bearish."
+    else:
+        decision = "WAIT"
+        reason = "Belum ada pengesahan arah yang mencukupi antara H4, H1 dan M15."
+
+    confidence = round(max(bullish, bearish) / 3 * 100)
+
+    price = m15["price"]
+    atr = m15["atr"]
+
+    entry = None
+    stop_loss = None
+    tp1 = None
+    tp2 = None
+    tp3 = None
+    risk_reward = None
+
+    if decision in ("LONG", "SHORT") and atr and atr > 0:
+        entry = price
+
+        risk = atr * 1.5
+
+        if decision == "LONG":
+            stop_loss = entry - risk
+            tp1 = entry + risk
+            tp2 = entry + (risk * 2)
+            tp3 = entry + (risk * 3)
+        else:
+            stop_loss = entry + risk
+            tp1 = entry - risk
+            tp2 = entry - (risk * 2)
+            tp3 = entry - (risk * 3)
+
+        entry = round(entry, 2)
+        stop_loss = round(stop_loss, 2)
+        tp1 = round(tp1, 2)
+        tp2 = round(tp2, 2)
+        tp3 = round(tp3, 2)
+        risk_reward = "1:2"
+
+    return {
+        "symbol": SYMBOL,
+        "exchange": "BINANCE SPOT MARKET DATA",
+        "decision": decision,
+        "confidence_percent": confidence,
+        "entry": entry,
+        "stop_loss": stop_loss,
+        "take_profit": tp2,
+        "take_profits": {
+            "TP1": tp1,
+            "TP2": tp2,
+            "TP3": tp3
+        },
+        "risk_reward": risk_reward,
+        "signal_reason": reason,
+        "timeframes": {
+            "M15": m15,
+            "H1": h1,
+            "H4": h4
+        },
+        "note": "Analisis indikator sahaja. Harga daripada Binance Spot. Entry dan sasaran ialah paras analisis, bukan arahan dagangan.",
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+
+
+
     return {
         "timeframe": label,
         "price": round(price, 2),
         "ema20": round(ema20[last], 2),
         "ema50": round(ema50[last], 2),
         "rsi": round(rsi[last], 2) if rsi[last] is not None else None,
+        "rsi14": round(rsi[last], 2) if rsi[last] is not None else None,
+        "atr": round(atr[last], 2) if atr[last] is not None else None,
         "trend": trend,
         "momentum": momentum,
         "candle_time": candles[last]["time"],
+        "market_structure": {
+            "high_structure": "BREAKOUT" if bos == "BULLISH" else "RANGE",
+            "low_structure": "BREAKDOWN" if bos == "BEARISH" else "RANGE",
+            "bos": bos,
+            "swing_high": round(swing_high, 2),
+            "swing_low": round(swing_low, 2)
+        }
     }
 
 
