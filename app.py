@@ -1,60 +1,120 @@
-
 import json
+import math
 import urllib.request
-import urllib.error
-from datetime import datetime, timezone
 from flask import Flask, jsonify, render_template
 
 app = Flask(__name__)
 
-BINANCE_URL = "https://data-api.binance.vision/api/v3"
+SPOT_URL = "https://data-api.binance.vision/api/v3"
 FUTURES_URL = "https://fapi.binance.com/fapi/v1"
 
 
-# =====================================
-# BINANCE DATA
-# =====================================
-
 def fetch_json(url, timeout=15):
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "TradingviewAI/2.0"}
-    )
+    request = urllib.request.Request(url, headers={"User-Agent": "TradingviewAI/3.0"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def get_candles(interval, limit=200):
-    url = (
-        f"{BINANCE_URL}/klines"
-        f"?symbol=BTCUSDT&interval={interval}&limit={limit}"
-    )
-    raw = fetch_json(url)
-
-    # Ignore the currently forming candle
-    raw = raw[:-1]
-
-    candles = []
-    for item in raw:
-        candles.append({
-            "time": int(item[0]),
-            "open": float(item[1]),
-            "high": float(item[2]),
-            "low": float(item[3]),
-            "close": float(item[4]),
-            "volume": float(item[5])
-        })
-
+def get_candles(interval="15m", limit=200, futures=False):
+    base = FUTURES_URL if futures else SPOT_URL
+    url = f"{base}/klines?symbol=BTCUSDT&interval={interval}&limit={limit}"
+    raw = fetch_json(url)[:-1]  # Exclude the still-forming candle
+    candles = [{
+        "time": int(x[0]), "open": float(x[1]), "high": float(x[2]),
+        "low": float(x[3]), "close": float(x[4]), "volume": float(x[5])
+    } for x in raw]
     if len(candles) < 60:
-        raise ValueError("Insufficient candle data")
-
+        raise ValueError("Insufficient candle data from Binance")
     return candles
+
+
+def ema_series(values, period):
+    out = [None] * len(values)
+    if len(values) < period:
+        return out
+    alpha = 2 / (period + 1)
+    current = sum(values[:period]) / period
+    out[period - 1] = current
+    for i in range(period, len(values)):
+        current = values[i] * alpha + current * (1 - alpha)
+        out[i] = current
+    return out
+
+
+def rsi_series(values, period=14):
+    out = [None] * len(values)
+    if len(values) <= period:
+        return out
+    changes = [values[i] - values[i - 1] for i in range(1, len(values))]
+    gains = [max(x, 0.0) for x in changes]
+    losses = [max(-x, 0.0) for x in changes]
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    out[period] = 100.0 if avg_loss == 0 else 100 - 100 / (1 + avg_gain / avg_loss)
+    for i in range(period + 1, len(values)):
+        avg_gain = (avg_gain * (period - 1) + gains[i - 1]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i - 1]) / period
+        out[i] = 100.0 if avg_loss == 0 else 100 - 100 / (1 + avg_gain / avg_loss)
+    return out
+
+
+def atr_series(candles, period=14):
+    out = [None] * len(candles)
+    true_ranges = []
+    for i, c in enumerate(candles):
+        previous_close = candles[i - 1]["close"] if i else c["close"]
+        true_ranges.append(max(
+            c["high"] - c["low"],
+            abs(c["high"] - previous_close),
+            abs(c["low"] - previous_close)
+        ))
+    if len(true_ranges) < period:
+        return out
+    current = sum(true_ranges[:period]) / period
+    out[period - 1] = current
+    for i in range(period, len(true_ranges)):
+        current = (current * (period - 1) + true_ranges[i]) / period
+        out[i] = current
+    return out
+
+
+def analyze_structure(candles):
+    swing_highs, swing_lows = [], []
+    for i in range(2, len(candles) - 2):
+        if all(candles[i]["high"] > candles[j]["high"] for j in (i-2, i-1, i+1, i+2)):
+            swing_highs.append(candles[i]["high"])
+        if all(candles[i]["low"] < candles[j]["low"] for j in (i-2, i-1, i+1, i+2)):
+            swing_lows.append(candles[i]["low"])
+    if len(swing_highs) < 2 or len(swing_lows) < 2:
+        return {"high_structure": "UNKNOWN", "low_structure": "UNKNOWN",
+                "swing_high": None, "swing_low": None, "bos": "NO_CONFIRMED_BOS"}
+    ph, lh = swing_highs[-2:]
+    pl, ll = swing_lows[-2:]
+    close = candles[-1]["close"]
+    bos = "BULLISH_BOS" if close > lh else "BEARISH_BOS" if close < ll else "NO_CONFIRMED_BOS"
+    return {
+        "high_structure": "HH" if lh > ph else "LH",
+        "low_structure": "HL" if ll > pl else "LL",
+        "swing_high": lh, "swing_low": ll, "bos": bos
+    }
+
+
+def analyze_timeframe(candles):
+    closes = [c["close"] for c in candles]
+    e20, e50 = ema_series(closes, 20)[-1], ema_series(closes, 50)[-1]
+    rsi = rsi_series(closes)[-1]
+    price = closes[-1]
+    trend = "BULLISH" if price > e20 > e50 else "BEARISH" if price < e20 < e50 else "SIDEWAYS"
+    return {
+        "price": round(price, 2), "ema20": round(e20, 2),
+        "ema50": round(e50, 2), "rsi14": round(rsi, 2),
+        "trend": trend, "market_structure": analyze_structure(candles)
+    }
 
 
 def get_market_data():
     return {
-        "symbol": "BTCUSDT",
-        "exchange": "BINANCE",
+        "symbol": "BTCUSDT", "exchange": "BINANCE",
         "timeframes": {
             "M15": get_candles("15m"),
             "H1": get_candles("1h"),
@@ -63,437 +123,151 @@ def get_market_data():
     }
 
 
-# =====================================
-# INDICATORS
-# =====================================
-
-def calculate_ema(values, period):
-    if len(values) < period:
-        return None
-
-    multiplier = 2 / (period + 1)
-    ema = sum(values[:period]) / period
-
-    for value in values[period:]:
-        ema = value * multiplier + ema * (1 - multiplier)
-
-    return round(ema, 2)
-
-
-def calculate_rsi(values, period=14):
-    if len(values) <= period:
-        return None
-
-    gains = []
-    losses = []
-
-    for i in range(1, len(values)):
-        change = values[i] - values[i - 1]
-        gains.append(max(change, 0))
-        losses.append(max(-change, 0))
-
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-
-    for i in range(period, len(gains)):
-        avg_gain = ((avg_gain * (period - 1)) + gains[i]) / period
-        avg_loss = ((avg_loss * (period - 1)) + losses[i]) / period
-
-    if avg_loss == 0:
-        return 100.0
-
-    rs = avg_gain / avg_loss
-    return round(100 - (100 / (1 + rs)), 2)
-
-
-def calculate_atr(candles, period=14):
-    if len(candles) <= period:
-        return None
-
-    ranges = []
-
-    for i in range(1, len(candles)):
-        current = candles[i]
-        previous_close = candles[i - 1]["close"]
-
-        ranges.append(max(
-            current["high"] - current["low"],
-            abs(current["high"] - previous_close),
-            abs(current["low"] - previous_close)
-        ))
-
-    return sum(ranges[-period:]) / period
-
-
-# =====================================
-# MARKET STRUCTURE
-# =====================================
-
-def analyze_structure(candles):
-    highs = []
-    lows = []
-
-    for i in range(2, len(candles) - 2):
-        candle = candles[i]
-
-        if (
-            candle["high"] > candles[i - 1]["high"]
-            and candle["high"] > candles[i - 2]["high"]
-            and candle["high"] > candles[i + 1]["high"]
-            and candle["high"] > candles[i + 2]["high"]
-        ):
-            highs.append(candle["high"])
-
-        if (
-            candle["low"] < candles[i - 1]["low"]
-            and candle["low"] < candles[i - 2]["low"]
-            and candle["low"] < candles[i + 1]["low"]
-            and candle["low"] < candles[i + 2]["low"]
-        ):
-            lows.append(candle["low"])
-
-    if len(highs) < 2 or len(lows) < 2:
-        return {
-            "high_structure": "UNKNOWN",
-            "low_structure": "UNKNOWN",
-            "swing_high": None,
-            "swing_low": None,
-            "previous_swing_high": None,
-            "previous_swing_low": None,
-            "bos": "NO_CONFIRMED_BOS"
-        }
-
-    previous_high, latest_high = highs[-2], highs[-1]
-    previous_low, latest_low = lows[-2], lows[-1]
-    close = candles[-1]["close"]
-
-    if close > latest_high:
-        bos = "BULLISH_BOS"
-    elif close < latest_low:
-        bos = "BEARISH_BOS"
-    else:
-        bos = "NO_CONFIRMED_BOS"
-
-    return {
-        "high_structure": "HH" if latest_high > previous_high else "LH",
-        "low_structure": "HL" if latest_low > previous_low else "LL",
-        "swing_high": latest_high,
-        "swing_low": latest_low,
-        "previous_swing_high": previous_high,
-        "previous_swing_low": previous_low,
-        "bos": bos
-    }
-
-
-# =====================================
-# TIMEFRAME ANALYSIS
-# =====================================
-
-def analyze_timeframe(candles):
-    closes = [c["close"] for c in candles]
-
-    price = closes[-1]
-    ema20 = calculate_ema(closes, 20)
-    ema50 = calculate_ema(closes, 50)
-    rsi = calculate_rsi(closes)
-
-    if price > ema20 and ema20 > ema50:
-        trend = "BULLISH"
-    elif price < ema20 and ema20 < ema50:
-        trend = "BEARISH"
-    else:
-        trend = "SIDEWAYS"
-
-    return {
-        "price": round(price, 2),
-        "ema20": ema20,
-        "ema50": ema50,
-        "rsi14": rsi,
-        "trend": trend,
-        "market_structure": analyze_structure(candles)
-    }
-
-
-# =====================================
-# SIGNAL ENGINE
-# =====================================
-
 def analyze_market(data):
     tf = data["timeframes"]
-
-    h4 = tf["H4"]
-    h1 = tf["H1"]
-    m15 = tf["M15"]
-
+    h4, h1, m15 = tf["H4"], tf["H1"], tf["M15"]
     entry = m15["price"]
     structure = m15["market_structure"]
-
-    decision = "WAIT"
-    stop_loss = None
-    take_profit = None
+    decision, stop, target = "WAIT", None, None
     reason = "Belum ada confirmation lengkap."
-
-    if (
-        h4["trend"] == "BULLISH"
-        and h1["trend"] == "BULLISH"
-        and m15["trend"] == "BULLISH"
-        and structure["bos"] == "BULLISH_BOS"
-    ):
-        swing_low = structure["swing_low"]
-
-        if swing_low and swing_low < entry:
-            decision = "LONG"
-            stop_loss = round(swing_low, 2)
-            take_profit = round(entry + 2 * (entry - stop_loss), 2)
+    if all(tf[x]["trend"] == "BULLISH" for x in ("H4", "H1", "M15")) and structure["bos"] == "BULLISH_BOS":
+        stop = structure["swing_low"]
+        if stop and stop < entry:
+            decision, target = "LONG", entry + 2 * (entry - stop)
             reason = "H4, H1 dan M15 bullish dengan bullish BOS."
-
-    elif (
-        h4["trend"] == "BEARISH"
-        and h1["trend"] == "BEARISH"
-        and m15["trend"] == "BEARISH"
-        and structure["bos"] == "BEARISH_BOS"
-    ):
-        swing_high = structure["swing_high"]
-
-        if swing_high and swing_high > entry:
-            decision = "SHORT"
-            stop_loss = round(swing_high, 2)
-            take_profit = round(entry - 2 * (stop_loss - entry), 2)
+    elif all(tf[x]["trend"] == "BEARISH" for x in ("H4", "H1", "M15")) and structure["bos"] == "BEARISH_BOS":
+        stop = structure["swing_high"]
+        if stop and stop > entry:
+            decision, target = "SHORT", entry - 2 * (stop - entry)
             reason = "H4, H1 dan M15 bearish dengan bearish BOS."
-
     return {
-        "decision": decision,
-        "exchange": data["exchange"],
-        "symbol": data["symbol"],
-        "entry": entry if decision != "WAIT" else None,
-        "stop_loss": stop_loss,
-        "take_profit": take_profit,
+        "decision": decision, "exchange": data["exchange"], "symbol": data["symbol"],
+        "entry": round(entry, 2) if decision != "WAIT" else None,
+        "stop_loss": round(stop, 2) if stop is not None else None,
+        "take_profit": round(target, 2) if target is not None else None,
         "risk_reward": "1:2" if decision != "WAIT" else None,
-        "signal_reason": reason,
-        "timeframes": tf,
+        "signal_reason": reason, "timeframes": tf,
         "note": "Analisis sahaja. Tiada order sebenar dihantar."
     }
 
 
-# =====================================
-# HISTORICAL BACKTEST
-# =====================================
-
-
 def run_backtest(candles, fee_percent=0.0004, slippage_percent=0.0002,
                  atr_multiplier=1.5, reward_risk=2.0, max_holding_bars=24):
+    """Backtest on Binance USD-M Futures candles; one position at a time."""
+    if len(candles) < 100:
+        return {"error": "Not enough candle data"}
 
-    trades = []
-    equity = 1.0
-    peak_equity = 1.0
-    max_drawdown = 0.0
+    closes = [c["close"] for c in candles]
+    ema20, ema50 = ema_series(closes, 20), ema_series(closes, 50)
+    rsi14, atr14 = rsi_series(closes), atr_series(candles)
+    trades, equity, peak, max_dd = [], 1.0, 1.0, 0.0
     i = 60
 
     while i < len(candles) - 1:
-        history = candles[:i + 1]
-        closes = [c["close"] for c in history]
-
-        ema20 = calculate_ema(closes, 20)
-        ema50 = calculate_ema(closes, 50)
-        rsi = calculate_rsi(closes)
-        atr = calculate_atr(history)
-
-        if ema20 is None or ema50 is None or rsi is None or atr is None or atr <= 0:
+        if any(x is None for x in (ema20[i], ema50[i], rsi14[i], atr14[i])) or atr14[i] <= 0:
             i += 1
             continue
-
-        price = closes[-1]
-        direction = None
-
-        if price > ema20 and ema20 > ema50 and rsi >= 52:
-            direction = "LONG"
-        elif price < ema20 and ema20 < ema50 and rsi <= 48:
-            direction = "SHORT"
-
-        if direction is None:
+        side = None
+        if closes[i] > ema20[i] > ema50[i] and rsi14[i] >= 52:
+            side = "LONG"
+        elif closes[i] < ema20[i] < ema50[i] and rsi14[i] <= 48:
+            side = "SHORT"
+        if side is None:
             i += 1
             continue
 
         entry_bar = i + 1
         raw_entry = candles[entry_bar]["open"]
-
-        if direction == "LONG":
-            entry = raw_entry * (1 + slippage_percent)
-        else:
-            entry = raw_entry * (1 - slippage_percent)
-
-        risk = atr * atr_multiplier
-
-        if direction == "LONG":
-            stop = entry - risk
-            target = entry + risk * reward_risk
-        else:
-            stop = entry + risk
-            target = entry - risk * reward_risk
-
-        last_bar = min(
-            entry_bar + max_holding_bars - 1,
-            len(candles) - 1
-        )
-
-        exit_price = None
-        exit_bar = entry_bar
-        exit_reason = "TIME_EXIT"
+        entry = raw_entry * (1 + slippage_percent if side == "LONG" else 1 - slippage_percent)
+        risk = atr14[i] * atr_multiplier
+        stop = entry - risk if side == "LONG" else entry + risk
+        target = entry + risk * reward_risk if side == "LONG" else entry - risk * reward_risk
+        last_bar = min(entry_bar + max_holding_bars - 1, len(candles) - 1)
+        exit_price, exit_bar, reason = None, last_bar, "TIME_EXIT"
 
         for j in range(entry_bar, last_bar + 1):
             bar = candles[j]
-
-            if direction == "LONG":
-                stop_hit = bar["low"] <= stop
-                target_hit = bar["high"] >= target
+            o, h, l = bar["open"], bar["high"], bar["low"]
+            if side == "LONG":
+                if l <= stop:
+                    exit_price, exit_bar, reason = min(o, stop), j, "STOP_LOSS"
+                    break
+                if h >= target:
+                    exit_price, exit_bar, reason = max(o, target) if o >= target else target, j, "TAKE_PROFIT"
+                    break
             else:
-                stop_hit = bar["high"] >= stop
-                target_hit = bar["low"] <= target
-
-            # Conservative: SL first if both hit
-            if stop_hit:
-                exit_price = stop
-                exit_reason = "STOP_LOSS"
-                exit_bar = j
-                break
-
-            if target_hit:
-                exit_price = target
-                exit_reason = "TAKE_PROFIT"
-                exit_bar = j
-                break
-
+                if h >= stop:
+                    exit_price, exit_bar, reason = max(o, stop), j, "STOP_LOSS"
+                    break
+                if l <= target:
+                    exit_price, exit_bar, reason = min(o, target) if o <= target else target, j, "TAKE_PROFIT"
+                    break
         if exit_price is None:
-            exit_bar = last_bar
             exit_price = candles[last_bar]["close"]
 
-        if direction == "LONG":
-            executed_exit = exit_price * (1 - slippage_percent)
-            gross_return = (executed_exit - entry) / entry
-        else:
-            executed_exit = exit_price * (1 + slippage_percent)
-            gross_return = (entry - executed_exit) / entry
-
-        net_return = gross_return - (fee_percent * 2)
-
-        equity *= max(0, 1 + net_return)
-        peak_equity = max(peak_equity, equity)
-
-        drawdown = (peak_equity - equity) / peak_equity * 100
-        max_drawdown = max(max_drawdown, drawdown)
-
+        executed_exit = exit_price * (1 - slippage_percent if side == "LONG" else 1 + slippage_percent)
+        gross = (executed_exit - entry) / entry if side == "LONG" else (entry - executed_exit) / entry
+        net = gross - 2 * fee_percent
+        equity *= max(0.0, 1 + net)
+        peak = max(peak, equity)
+        max_dd = max(max_dd, (peak - equity) / peak)
         trades.append({
-            "direction": direction,
-            "entry_time": candles[entry_bar]["time"],
-            "exit_time": candles[exit_bar]["time"],
-            "entry": round(entry, 2),
-            "exit": round(executed_exit, 2),
-            "result": "WIN" if net_return > 0 else "LOSS",
-            "exit_reason": exit_reason,
-            "gross_return_percent": round(gross_return * 100, 4),
-            "net_return_percent": round(net_return * 100, 4),
-            "equity_percent": round((equity - 1) * 100, 2)
+            "direction": side, "entry_time": candles[entry_bar]["time"],
+            "exit_time": candles[exit_bar]["time"], "entry": round(entry, 2),
+            "exit": round(executed_exit, 2), "exit_reason": reason,
+            "gross_return_percent": round(gross * 100, 4),
+            "net_return_percent": round(net * 100, 4),
+            "equity_percent": round((equity - 1) * 100, 2),
+            "result": "WIN" if net > 0 else "LOSS"
         })
+        i = exit_bar
 
-        # No overlapping trades
-        i = max(exit_bar, i + 1)
-
-    total = len(trades)
-    wins = [t for t in trades if t["net_return_percent"] > 0]
-    losses = [t for t in trades if t["net_return_percent"] <= 0]
-
-    gross_profit = sum(t["net_return_percent"] for t in wins)
-    gross_loss = abs(sum(t["net_return_percent"] for t in losses))
-
-    def direction_stats(name):
-        selected = [t for t in trades if t["direction"] == name]
-        won = [t for t in selected if t["net_return_percent"] > 0]
-        lost = [t for t in selected if t["net_return_percent"] <= 0]
-
-        gp = sum(t["net_return_percent"] for t in won)
-        gl = abs(sum(t["net_return_percent"] for t in lost))
-
+    def stats(side):
+        selected = [t for t in trades if t["direction"] == side]
+        wins = [t for t in selected if t["net_return_percent"] > 0]
+        losses = [t for t in selected if t["net_return_percent"] <= 0]
+        gp = sum(t["net_return_percent"] for t in wins)
+        gl = abs(sum(t["net_return_percent"] for t in losses))
+        compounded = math.prod(1 + t["net_return_percent"] / 100 for t in selected)
         return {
-            "trades": len(selected),
-            "wins": len(won),
-            "losses": len(lost),
-            "win_rate_percent": round(
-                len(won) / len(selected) * 100, 2
-            ) if selected else 0,
-            "net_return_percent": round(
-                sum(t["net_return_percent"] for t in selected), 2
-            ),
-            "profit_factor": round(gp / gl, 3) if gl else None
+            "trades": len(selected), "wins": len(wins), "losses": len(losses),
+            "win_rate_percent": round(100 * len(wins) / len(selected), 2) if selected else 0,
+            "net_return_percent": round((compounded - 1) * 100, 2),
+            "profit_factor": round(gp / gl, 3) if gl else None,
+            "expectancy_per_trade_percent": round(sum(t["net_return_percent"] for t in selected) / len(selected), 4) if selected else 0
         }
 
     return {
-        "symbol": "BTCUSDT",
-        "timeframe": "15m",
-        "strategy": "EMA20/EMA50 + RSI + ATR",
-        "total_trades": total,
-        "wins": len(wins),
-        "losses": len(losses),
-        "win_rate_percent": round(
-            len(wins) / total * 100, 2
-        ) if total else 0,
+        "symbol": "BTCUSDT", "market": "BINANCE_USD_M_FUTURES", "timeframe": "15m",
+        "strategy": "EMA20/EMA50 + RSI14 + ATR14", "total_trades": len(trades),
         "net_return_percent": round((equity - 1) * 100, 2),
-        "profit_factor": round(
-            gross_profit / gross_loss, 3
-        ) if gross_loss else None,
-        "expectancy_per_trade_percent": round(
-            sum(t["net_return_percent"] for t in trades) / total, 4
-        ) if total else 0,
-        "max_drawdown_percent": round(max_drawdown, 2),
-        "long": direction_stats("LONG"),
-        "short": direction_stats("SHORT"),
+        "max_drawdown_percent": round(max_dd * 100, 2),
+        "long": stats("LONG"), "short": stats("SHORT"),
         "assumptions": {
             "fee_per_side_percent": fee_percent * 100,
             "slippage_per_side_percent": slippage_percent * 100,
-            "stop_atr_multiplier": atr_multiplier,
-            "reward_risk": reward_risk,
-            "max_holding_bars": max_holding_bars,
-            "funding_included": False,
-            "same_candle_sl_tp": "Stop loss assumed first"
+            "stop_atr_multiplier": atr_multiplier, "reward_risk": reward_risk,
+            "max_holding_bars": max_holding_bars, "funding_included": False,
+            "same_candle_stop_and_target": "Stop loss assumed first",
+            "entry": "Next candle open", "position_overlap": False
         },
         "trades": trades[-30:],
-        "warning": (
-            "Historical simulation only. Funding, market impact "
-            "and liquidation are not included. Test on unseen "
-            "historical data before live trading."
-        )
+        "warning": "Simulation only. Funding, liquidation fees, market impact and out-of-sample validation are not included."
     }
 
-
-# =====================================
-# BINANCE FUTURES INTELLIGENCE
-# =====================================
 
 def get_futures_data():
-    funding = fetch_json(
-        f"{FUTURES_URL}/premiumIndex?symbol=BTCUSDT"
-    )
-
-    open_interest = fetch_json(
-        f"{FUTURES_URL}/openInterest?symbol=BTCUSDT"
-    )
-
+    funding = fetch_json(f"{FUTURES_URL}/premiumIndex?symbol=BTCUSDT")
+    oi = fetch_json(f"{FUTURES_URL}/openInterest?symbol=BTCUSDT")
     return {
-        "symbol": "BTCUSDT",
-        "funding_rate": float(funding["lastFundingRate"]),
+        "symbol": "BTCUSDT", "funding_rate": float(funding["lastFundingRate"]),
         "next_funding_time": int(funding["nextFundingTime"]),
         "mark_price": float(funding["markPrice"]),
-        "open_interest": float(open_interest["openInterest"]),
+        "open_interest": float(oi["openInterest"]),
         "source": "Binance USD-M Futures",
-        "note": (
-            "Open interest is a market-wide contract measure, "
-            "not proof of whale buying or selling."
-        )
+        "note": "Open interest is market-wide contract data, not proof of whale activity."
     }
 
-
-# =====================================
-# DASHBOARD ROUTES
-# =====================================
 
 @app.route("/")
 def home():
@@ -504,16 +278,10 @@ def home():
 def btc_data():
     try:
         data = get_market_data()
-
         return jsonify({
-            "symbol": data["symbol"],
-            "exchange": data["exchange"],
-            "timeframes": {
-                name: analyze_timeframe(candles)
-                for name, candles in data["timeframes"].items()
-            }
+            "symbol": data["symbol"], "exchange": data["exchange"],
+            "timeframes": {k: analyze_timeframe(v) for k, v in data["timeframes"].items()}
         })
-
     except Exception as error:
         app.logger.exception("BTC data error")
         return jsonify({"error": str(error)}), 500
@@ -523,18 +291,11 @@ def btc_data():
 def btc_analysis():
     try:
         data = get_market_data()
-
         analyzed = {
-            "symbol": data["symbol"],
-            "exchange": data["exchange"],
-            "timeframes": {
-                name: analyze_timeframe(candles)
-                for name, candles in data["timeframes"].items()
-            }
+            "symbol": data["symbol"], "exchange": data["exchange"],
+            "timeframes": {k: analyze_timeframe(v) for k, v in data["timeframes"].items()}
         }
-
         return jsonify(analyze_market(analyzed))
-
     except Exception as error:
         app.logger.exception("BTC analysis error")
         return jsonify({"error": str(error)}), 500
@@ -543,16 +304,8 @@ def btc_analysis():
 @app.route("/btc-price")
 def btc_price():
     try:
-        result = fetch_json(
-            f"{BINANCE_URL}/ticker/price?symbol=BTCUSDT"
-        )
-
-        return jsonify({
-            "symbol": result["symbol"],
-            "price": float(result["price"]),
-            "exchange": "BINANCE"
-        })
-
+        result = fetch_json(f"{SPOT_URL}/ticker/price?symbol=BTCUSDT")
+        return jsonify({"symbol": result["symbol"], "price": float(result["price"]), "exchange": "BINANCE"})
     except Exception as error:
         app.logger.exception("BTC price error")
         return jsonify({"error": str(error)}), 500
@@ -561,9 +314,8 @@ def btc_price():
 @app.route("/btc-backtest")
 def btc_backtest():
     try:
-        candles = get_candles("15m", limit=1000)
+        candles = get_candles("15m", limit=1000, futures=True)
         return jsonify(run_backtest(candles))
-
     except Exception as error:
         app.logger.exception("Backtest error")
         return jsonify({"error": str(error)}), 500
@@ -573,18 +325,10 @@ def btc_backtest():
 def btc_intelligence():
     try:
         return jsonify(get_futures_data())
-
     except Exception as error:
-        app.logger.exception("Futures data error")
-        return jsonify({
-            "error": str(error),
-            "source": "Binance USD-M Futures"
-        }), 500
+        app.logger.exception("Futures intelligence error")
+        return jsonify({"error": str(error), "source": "Binance USD-M Futures"}), 500
 
-
-# =====================================
-# START SERVER
-# =====================================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
