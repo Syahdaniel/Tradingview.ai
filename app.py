@@ -114,6 +114,60 @@ def atr_series(candles, period=14):
         current = ((current * (period - 1)) + trs[i]) / period
         result[i] = current
     return result
+    
+
+def timeframe_analysis(interval, label):
+    candles = get_candles(interval, 250)
+    closes = [c["close"] for c in candles]
+
+    if len(closes) < 60:
+        raise RuntimeError(f"Data {label} tidak mencukupi")
+
+    ema20 = ema_series(closes, 20)
+    ema50 = ema_series(closes, 50)
+    rsi = rsi_series(closes, 14)
+    atr = atr_series(candles, 14)
+
+    last = len(closes) - 1
+    price = closes[last]
+
+    trend = "BULLISH" if ema20[last] > ema50[last] else "BEARISH"
+
+    momentum = (
+        "BULLISH" if rsi[last] is not None and rsi[last] >= 55
+        else "BEARISH" if rsi[last] is not None and rsi[last] <= 45
+        else "NEUTRAL"
+    )
+
+    recent = candles[-21:-1]
+    swing_high = max(c["high"] for c in recent)
+    swing_low = min(c["low"] for c in recent)
+
+    bos = (
+        "BULLISH" if price > swing_high
+        else "BEARISH" if price < swing_low
+        else "NONE"
+    )
+
+    return {
+        "timeframe": label,
+        "price": round(price, 2),
+        "ema20": round(ema20[last], 2),
+        "ema50": round(ema50[last], 2),
+        "rsi": round(rsi[last], 2) if rsi[last] is not None else None,
+        "rsi14": round(rsi[last], 2) if rsi[last] is not None else None,
+        "atr": round(atr[last], 2) if atr[last] is not None else None,
+        "trend": trend,
+        "momentum": momentum,
+        "candle_time": candles[last]["time"],
+        "market_structure": {
+            "high_structure": "BREAKOUT" if bos == "BULLISH" else "RANGE",
+            "low_structure": "BREAKDOWN" if bos == "BEARISH" else "RANGE",
+            "bos": bos,
+            "swing_high": round(swing_high, 2),
+            "swing_low": round(swing_low, 2)
+        }
+    }
 
 
 
