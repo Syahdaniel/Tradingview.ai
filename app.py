@@ -166,54 +166,74 @@ def build_analysis():
     }
 
 
-def get_bybit_futures_data():
-    """Public Bybit linear-market data; no API key required."""
+
+
+def get_okx_futures_data():
     result = {
-        "source": "BYBIT PUBLIC LINEAR API",
         "status": "UNAVAILABLE",
-        "symbol": SYMBOL,
         "funding_rate_percent": None,
-        "next_funding_time": None,
         "mark_price": None,
+        "next_funding_time": None,
         "open_interest": None,
         "open_interest_value_usdt": None,
-        "note": None,
+        "error": None,
+        "note": "OKX Futures data. Nilai tidak direka atau dianggarkan."
     }
-    errors = []
+
+    base_url = "https://www.okx.com"
+    inst_id = "BTC-USDT-SWAP"
+
+    endpoints = {
+        "funding": f"{base_url}/api/v5/public/funding-rate?instId={inst_id}",
+        "mark": f"{base_url}/api/v5/public/mark-price?instType=SWAP&instId={inst_id}",
+        "oi": f"{base_url}/api/v5/public/open-interest?instType=SWAP&instId={inst_id}"
+    }
+
     try:
-        ticker = http_json(
-            f"{BYBIT_PUBLIC}/v5/market/tickers?category=linear&symbol={SYMBOL}"
+        import json
+        import urllib.request
+
+        def fetch(url):
+            request = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return json.loads(response.read().decode("utf-8"))
+
+        funding = fetch(endpoints["funding"])
+        mark = fetch(endpoints["mark"])
+        oi = fetch(endpoints["oi"])
+
+        if funding.get("code") == "0" and funding.get("data"):
+            item = funding["data"][0]
+            result["funding_rate_percent"] = float(
+                item["fundingRate"]
+            ) * 100
+            result["next_funding_time"] = item.get("nextFundingTime")
+
+        if mark.get("code") == "0" and mark.get("data"):
+            result["mark_price"] = float(mark["data"][0]["markPx"])
+
+        if oi.get("code") == "0" and oi.get("data"):
+            item = oi["data"][0]
+            result["open_interest"] = float(item["oi"])
+
+        available = sum([
+            result["funding_rate_percent"] is not None,
+            result["mark_price"] is not None,
+            result["open_interest"] is not None
+        ])
+
+        result["status"] = (
+            "LIVE" if available == 3
+            else "PARTIAL" if available > 0
+            else "UNAVAILABLE"
         )
-        item = ticker.get("result", {}).get("list", [])
-        if not item:
-            raise RuntimeError("Ticker Bybit tidak memulangkan data")
-        item = item[0]
-        result["mark_price"] = safe_float(item.get("markPrice"))
-        funding = safe_float(item.get("fundingRate"))
-        result["funding_rate_percent"] = round(funding * 100, 6) if funding is not None else None
-        result["next_funding_time"] = item.get("nextFundingTime")
-        oi = http_json(
-            f"{BYBIT_PUBLIC}/v5/market/open-interest?"
-            + urllib.parse.urlencode({
-                "category": "linear",
-                "symbol": SYMBOL,
-                "intervalTime": "5min",
-                "limit": 1,
-            })
-        )
-        oi_rows = oi.get("result", {}).get("list", [])
-        if oi_rows:
-            result["open_interest"] = safe_float(oi_rows[0].get("openInterest"))
-            if result["open_interest"] is not None and result["mark_price"] is not None:
-                result["open_interest_value_usdt"] = round(
-                    result["open_interest"] * result["mark_price"], 2
-                )
-        result["status"] = "LIVE" if result["mark_price"] is not None else "PARTIAL"
-        result["note"] = "Funding rate dan open interest daripada Bybit public API; nilai mungkin berbeza daripada Binance."
-    except Exception as exc:
-        errors.append(str(exc))
-        result["note"] = "Data Futures alternatif tidak dapat dicapai. Tiada nilai direka atau dianggarkan."
-        result["error"] = errors[-1]
+
+    except Exception as error:
+        result["error"] = str(error)
+
     return result
 
 
