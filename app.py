@@ -290,28 +290,100 @@ def build_analysis():
     }
 
 
+
 def build_analysis():
     m15 = timeframe_analysis("15m", "M15")
     h1 = timeframe_analysis("1h", "H1")
     h4 = timeframe_analysis("4h", "H4")
-    bullish = sum(x["trend"] == "BULLISH" for x in (m15, h1, h4))
-    bearish = sum(x["trend"] == "BEARISH" for x in (m15, h1, h4))
-    if bullish >= 2 and m15["momentum"] != "BEARISH":
+
+    bullish = sum(
+        x["trend"] == "BULLISH"
+        for x in (m15, h1, h4)
+    )
+    bearish = sum(
+        x["trend"] == "BEARISH"
+        for x in (m15, h1, h4)
+    )
+
+    long_confirmed = (
+        bullish >= 2
+        and m15["momentum"] == "BULLISH"
+        and h4["trend"] == "BULLISH"
+    )
+
+    short_confirmed = (
+        bearish >= 2
+        and m15["momentum"] == "BEARISH"
+        and h4["trend"] == "BEARISH"
+    )
+
+    if long_confirmed:
         decision = "LONG"
-    elif bearish >= 2 and m15["momentum"] != "BULLISH":
+    elif short_confirmed:
         decision = "SHORT"
     else:
         decision = "WAIT"
+
     confidence = round(max(bullish, bearish) / 3 * 100)
+
+    entry = None
+    stop_loss = None
+    tp1 = None
+    tp2 = None
+    tp3 = None
+    risk_reward = None
+
+    price = m15.get("price")
+    atr = m15.get("atr")
+
+    if decision in ("LONG", "SHORT") and price is not None and atr is not None and atr > 0:
+        entry = round(price, 2)
+        risk = atr * 1.5
+
+        if decision == "LONG":
+            stop_loss = round(entry - risk, 2)
+            tp1 = round(entry + risk, 2)
+            tp2 = round(entry + (risk * 2), 2)
+            tp3 = round(entry + (risk * 3), 2)
+        else:
+            stop_loss = round(entry + risk, 2)
+            tp1 = round(entry - risk, 2)
+            tp2 = round(entry - (risk * 2), 2)
+            tp3 = round(entry - (risk * 3), 2)
+
+        risk_reward = "1:2"
+
+    if decision == "LONG":
+        signal_reason = "Trend dan momentum mengesahkan peluang LONG."
+    elif decision == "SHORT":
+        signal_reason = "Trend dan momentum mengesahkan peluang SHORT."
+    else:
+        signal_reason = "Belum ada pengesahan trend dan momentum yang mencukupi. Tunggu setup."
+
     return {
         "symbol": SYMBOL,
         "exchange": "BINANCE SPOT MARKET DATA",
         "decision": decision,
         "confidence_percent": confidence,
-        "timeframes": {"M15": m15, "H1": h1, "H4": h4},
-        "note": "Analisis indikator sahaja. Data harga daripada Binance Spot; bukan pengesahan order book Futures dan bukan arahan dagangan.",
+        "entry": entry,
+        "stop_loss": stop_loss,
+        "take_profit": tp2,
+        "take_profits": {
+            "TP1": tp1,
+            "TP2": tp2,
+            "TP3": tp3
+        },
+        "risk_reward": risk_reward,
+        "signal_reason": signal_reason,
+        "timeframes": {
+            "M15": m15,
+            "H1": h1,
+            "H4": h4
+        },
+        "note": "Entry, SL dan TP ialah paras analisis berasaskan ATR, bukan arahan dagangan atau jaminan harga.",
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
 
 
 
