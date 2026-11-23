@@ -1,293 +1,201 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ms">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC AI Dashboard</title>
-
-    <style>
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            padding: 18px;
-            background: #0b1120;
-            color: #ffffff;
-            font-family: Arial, sans-serif;
-        }
-
-        .container {
-            max-width: 1000px;
-            margin: auto;
-        }
-
-        h1 {
-            font-size: 25px;
-        }
-
-        .subtitle {
-            color: #94a3b8;
-            font-size: 13px;
-        }
-
-        .card {
-            background: #172033;
-            border: 1px solid #29364d;
-            border-radius: 12px;
-            padding: 18px;
-            margin-top: 15px;
-        }
-
-        .price {
-            font-size: 32px;
-            font-weight: bold;
-            margin-top: 8px;
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-        }
-
-        .value {
-            font-size: 20px;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-
-        .muted {
-            color: #94a3b8;
-            font-size: 13px;
-        }
-
-        .green {
-            color: #22c55e;
-        }
-
-        .red {
-            color: #ef4444;
-        }
-
-        .yellow {
-            color: #facc15;
-        }
-
-        iframe {
-            width: 100%;
-            height: 420px;
-            border: 0;
-            border-radius: 8px;
-        }
-
-        @media (max-width: 600px) {
-            .grid {
-                grid-template-columns: 1fr;
-            }
-
-            iframe {
-                height: 350px;
-            }
-        }
-    </style>
-
-<link rel="icon" type="image/png" href="/static/tradingview-ai.png">
-<link rel="apple-touch-icon" href="/static/tradingview-ai.png">
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#080d19">
+<title>Tradingview AI — BTC Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#080d19;--panel:#111a2b;--panel2:#0d1524;--line:#26344b;--text:#edf3ff;--muted:#8c9bb3;--green:#20d49a;--red:#ff6277;--yellow:#f5c451;--blue:#72a7ff}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at 50% -20%,#172844 0%,var(--bg) 52%);color:var(--text);font-family:Inter,Arial,sans-serif;min-height:100vh}
+.wrap{width:min(1180px,100% - 32px);margin:0 auto;padding:28px 0 48px}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{width:42px;height:42px;border-radius:13px;background:linear-gradient(135deg,#f6a623,#f7931a);display:grid;place-items:center;color:#111;font-size:22px;font-weight:800}
+h1{font-size:20px;letter-spacing:-.5px;margin:0}
+.sub{color:var(--muted);font-size:12px;margin-top:4px}
+.status{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-radius:30px;color:var(--muted);font-size:12px;background:#0e1727}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--yellow);box-shadow:0 0 10px currentColor}
+.dot.live{background:var(--green);color:var(--green)}.dot.error{background:var(--red);color:var(--red)}
+.panel{background:linear-gradient(145deg,rgba(20,31,50,.98),rgba(14,22,37,.98));border:1px solid var(--line);border-radius:18px;padding:20px;box-shadow:0 12px 35px #0002}
+.section-title{font-size:14px;font-weight:700;margin:0 0 16px;letter-spacing:.1px}
+.muted{color:var(--muted)}.mono{font-family:"DM Mono",monospace;font-variant-numeric:tabular-nums}
+.top-grid{display:grid;grid-template-columns:1.35fr .85fr;gap:16px;margin-bottom:16px}
+.price-label,.eyebrow{font-size:11px;letter-spacing:1.1px;color:var(--muted);font-weight:700}
+.price{font-size:clamp(30px,5vw,44px);font-weight:800;letter-spacing:-1.5px;margin:10px 0 6px}
+.price-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.pill{padding:5px 9px;border-radius:20px;background:#17283b;border:1px solid #2b405b;color:#b9c9e1;font-size:11px}
+.decision{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.signal{font-size:27px;font-weight:800;letter-spacing:.5px;margin:7px 0}
+.signal.LONG,.green{color:var(--green)}.signal.SHORT,.red{color:var(--red)}.signal.WAIT,.yellow{color:var(--yellow)}
+.confidence{font-size:12px;color:var(--muted);text-align:right}
+.reason{color:#c2cee0;font-size:13px;line-height:1.55;margin-top:12px}
+.grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.setup{margin-bottom:16px}
+.metric{padding:16px;border-radius:14px;background:var(--panel2);border:1px solid #26354c;min-width:0}
+.metric .label{font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.7px;text-transform:uppercase}
+.metric .num{font-size:clamp(17px,2.5vw,22px);font-weight:700;margin-top:10px;overflow-wrap:anywhere}
+.metric.tp .num{color:var(--green)}.metric.sl .num{color:var(--red)}
+.chart{margin-bottom:16px}
+.chart-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px}
+.chart iframe{display:block;width:100%;height:430px;border:0;border-radius:12px;background:#0b1220}
+.chart-note{font-size:11px;color:var(--muted);margin-top:10px}
+.tf-card{padding:17px;border-radius:14px;background:var(--panel2);border:1px solid #26354c}
+.tf-head{display:flex;justify-content:space-between;align-items:center}
+.tf-name{font-weight:800;font-size:14px}
+.trend{font-size:13px;font-weight:800;margin:14px 0 8px}
+.tf-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.tf-stats div{border-top:1px solid #26354c;padding-top:10px}
+.tf-stats small{display:block;color:var(--muted);font-size:10px;margin-bottom:5px}
+.tf-stats b{font-size:12px;font-family:"DM Mono",monospace;font-weight:500}
+.section{margin-bottom:16px}
+.structure-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.structure-card{padding:15px;border-radius:13px;background:var(--panel2);border:1px solid #26354c}
+.structure-card h3{font-size:13px;margin:0 0 12px}
+.struct-row{display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:7px 0;border-bottom:1px solid #202d42;color:var(--muted)}
+.struct-row:last-child{border:0}.struct-row b{color:#dce7f7;font-family:"DM Mono",monospace;font-weight:500;text-align:right}
+.indicator-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.indicator{padding:15px;border-radius:13px;background:var(--panel2);border:1px solid #26354c}
+.indicator h3{font-size:12px;color:var(--muted);margin:0 0 10px}
+.indicator .big{font-size:19px;font-weight:700}
+.footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:11px;padding:8px 2px}
+.error-box{color:#ff9baa;background:#351923;border:1px solid #713448;padding:12px;border-radius:12px;font-size:12px;line-height:1.5}
+@media(max-width:760px){.wrap{width:min(100% - 22px,600px);padding-top:18px}.top-grid{grid-template-columns:1fr}.grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}.structure-grid{grid-template-columns:1fr}.chart iframe{height:360px}.panel{padding:16px}}
+@media(max-width:420px){.grid-3{gap:8px}.metric{padding:13px}.metric .num{font-size:17px}.indicator-grid{grid-template-columns:1fr 1fr}.tf-stats{gap:5px}}
+</style>
 </head>
-
 <body>
-<div class="container">
+<div class="wrap">
+<header>
+  <div class="brand"><div class="logo">₿</div><div><h1>TRADINGVIEW AI</h1><div class="sub">BTCUSDT · PROFESSIONAL MARKET TERMINAL</div></div></div>
+  <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">CONNECTING</span></div>
+</header>
 
-    <h1>BTC AI Dashboard</h1>
-    <div class="subtitle">BINANCE · BTCUSDT · LIVE MARKET MONITOR</div>
+<section class="top-grid">
+  <div class="panel">
+    <div class="price-label">BITCOIN / USDT · BINGX SPOT</div>
+    <div class="price mono" id="price">--</div>
+    <div class="price-meta"><span class="pill">BTCUSDT</span><span class="pill">SPOT MARKET DATA</span><span id="updated">Waiting for market data</span></div>
+  </div>
+  <div class="panel">
+    <div class="decision"><div><div class="eyebrow">AI MARKET DECISION</div><div class="signal WAIT" id="decision">WAIT</div></div><div class="confidence"><div class="eyebrow">CONFIDENCE</div><div class="signal mono" style="font-size:23px" id="confidence">--%</div></div></div>
+    <div class="reason" id="reason">Menunggu pengesahan data pasaran.</div>
+  </div>
+</section>
 
-    <div class="card">
-        <div class="muted">BITCOIN PRICE</div>
-        <div class="price" id="price">Loading...</div>
-        <div class="muted" id="updated">Waiting for data...</div>
-    </div>
+<section class="panel chart">
+  <div class="chart-head"><h2 class="section-title" style="margin:0">BTCUSDT PRICE CHART</h2><span class="pill">15 MIN</span></div>
+  <iframe title="TradingView BTCUSDT chart" src="https://s.tradingview.com/widgetembed/?symbol=BINANCE%3ABTCUSDT&interval=15&theme=dark&style=1&locale=en&hide_top_toolbar=true&allow_symbol_change=false"></iframe>
+  <div class="chart-note">Carta dipaparkan melalui TradingView (BINANCE). Harga dan analisis dashboard menggunakan BingX Spot.</div>
+</section>
 
-    <div class="card">
-        <h3>BTCUSDT Chart</h3>
+<section class="panel setup section">
+  <h2 class="section-title">TRADE SETUP</h2>
+  <div class="grid-3">
+    <div class="metric"><div class="label">Entry Price</div><div class="num mono" id="entry">--</div></div>
+    <div class="metric sl"><div class="label">Stop Loss</div><div class="num mono" id="stoploss">--</div></div>
+    <div class="metric tp"><div class="label">Take Profit 1</div><div class="num mono" id="tp1">--</div></div>
+    <div class="metric tp"><div class="label">Take Profit 2</div><div class="num mono" id="tp2">--</div></div>
+    <div class="metric tp"><div class="label">Take Profit 3</div><div class="num mono" id="tp3">--</div></div>
+    <div class="metric"><div class="label">Risk / Reward</div><div class="num mono" id="riskreward">--</div></div>
+  </div>
+</section>
 
-        <iframe
-            src="https://s.tradingview.com/widgetembed/?symbol=BINANCE%3ABTCUSDT&interval=15&theme=dark&style=1&locale=en&hide_top_toolbar=true&allow_symbol_change=false">
-        </iframe>
-    </div>
+<section class="section">
+  <h2 class="section-title">MULTI-TIMEFRAME ANALYSIS</h2>
+  <div class="grid-3">
+    <div class="tf-card"><div class="tf-head"><span class="tf-name">H4 TREND</span><span class="pill">4H</span></div><div class="trend yellow" id="h4">--</div><div class="muted" style="font-size:11px" id="h4rsi">RSI --</div><div class="tf-stats"><div><small>EMA 20</small><b id="h4ema20">--</b></div><div><small>EMA 50</small><b id="h4ema50">--</b></div><div><small>ATR</small><b id="h4atr">--</b></div></div></div>
+    <div class="tf-card"><div class="tf-head"><span class="tf-name">H1 TREND</span><span class="pill">1H</span></div><div class="trend yellow" id="h1">--</div><div class="muted" style="font-size:11px" id="h1rsi">RSI --</div><div class="tf-stats"><div><small>EMA 20</small><b id="h1ema20">--</b></div><div><small>EMA 50</small><b id="h1ema50">--</b></div><div><small>ATR</small><b id="h1atr">--</b></div></div></div>
+    <div class="tf-card"><div class="tf-head"><span class="tf-name">M15 TREND</span><span class="pill">15M</span></div><div class="trend yellow" id="m15">--</div><div class="muted" style="font-size:11px" id="m15rsi">RSI --</div><div class="tf-stats"><div><small>EMA 20</small><b id="m15ema20">--</b></div><div><small>EMA 50</small><b id="m15ema50">--</b></div><div><small>ATR</small><b id="m15atr">--</b></div></div></div>
+  </div>
+</section>
 
-    <div class="card">
-        <h3>Market Decision</h3>
-        <div class="value" id="decision">Loading...</div>
-    </div>
-    
-    <div class="grid">
+<section class="panel section">
+  <h2 class="section-title">MARKET STRUCTURE</h2>
+  <div class="structure-grid" id="structure">
+    <div class="structure-card">Loading market structure...</div>
+  </div>
+</section>
 
-        <div class="card">
-            <h3>Entry Price</h3>
-            <div class="value" id="entry">--</div>
-        </div>
-
-        <div class="card">
-            <h3>Stop Loss</h3>
-            <div class="value" id="stoploss">--</div>
-        </div>
-
-        <div class="card">
-    <h3>Take Profit 1</h3>
-    <div class="value green" id="tp1">--</div>
+<div class="footer"><span>Data source: BingX Spot · BTC-USDT</span><span id="dataState">Analysis refreshes every 30 seconds</span></div>
 </div>
-
-<div class="card">
-    <h3>Take Profit 2</h3>
-    <div class="value green" id="tp2">--</div>
-</div>
-
-<div class="card">
-    <h3>Take Profit 3</h3>
-    <div class="value green" id="tp3">--</div>
-</div>
-
-        <div class="card">
-            <h3>Risk Reward</h3>
-            <div class="value" id="riskreward">--</div>
-        </div>
-
-        <div class="card">
-            <h3>Signal Reason</h3>
-            <div class="value" id="reason">--</div>
-        </div>
-
-    </div>
-
-
-    <div class="grid">
-
-        <div class="card">
-            <h3>H4 Trend</h3>
-            <div class="value" id="h4">--</div>
-            <div class="muted" id="h4rsi">RSI: --</div>
-        </div>
-
-        <div class="card">
-            <h3>H1 Trend</h3>
-            <div class="value" id="h1">--</div>
-            <div class="muted" id="h1rsi">RSI: --</div>
-        </div>
-
-        <div class="card">
-            <h3>M15 Trend</h3>
-            <div class="value" id="m15">--</div>
-            <div class="muted" id="m15rsi">RSI: --</div>
-        </div>
-
-    </div>
-
-    <div class="card">
-        <h3>Market Structure</h3>
-        <div id="structure">Loading...</div>
-    </div>
-
-</div>
-
 <script>
-
-async function loadDashboard() {
-    try {
-        const response = await fetch("/btc-analysis");
-
-        if (!response.ok) {
-            throw new Error("Server error: " + response.status);
-        }
-
-        const data = await response.json();
-
-        const h4 = data.timeframes.H4;
-        const h1 = data.timeframes.H1;
-        const m15 = data.timeframes.M15;
-
-        document.getElementById("price").textContent =
-            "$" + h4.price.toLocaleString("en-US");
-
-        document.getElementById("updated").textContent =
-            "Last updated: " + new Date().toLocaleTimeString();
-
-        const decision = document.getElementById("decision");
-        decision.textContent = data.decision;
-        decision.className = "value " +
-            (data.decision === "LONG" ? "green" :
-             data.decision === "SHORT" ? "red" : "yellow");
-
-        document.getElementById("entry").textContent =
-            data.entry == null ? "--" : data.entry;
-
-        document.getElementById("stoploss").textContent =
-            data.stop_loss == null ? "--" : data.stop_loss;
-
-        const targets = data.take_profits || {};
-
-document.getElementById("tp1").textContent =
-    targets.TP1 == null ? "--" : targets.TP1;
-
-document.getElementById("tp2").textContent =
-    targets.TP2 == null ? "--" : targets.TP2;
-
-document.getElementById("tp3").textContent =
-    targets.TP3 == null ? "--" : targets.TP3;
-        document.getElementById("riskreward").textContent =
-            data.risk_reward || "--";
-
-        document.getElementById("reason").textContent =
-            data.signal_reason || "--";
-
-        function showTrend(id, trend) {
-            const element = document.getElementById(id);
-            element.textContent = trend;
-            element.className = "value " +
-                (trend === "BULLISH" ? "green" :
-                 trend === "BEARISH" ? "red" : "yellow");
-        }
-
-        showTrend("h4", h4.trend);
-        showTrend("h1", h1.trend);
-        showTrend("m15", m15.trend);
-
-        document.getElementById("h4rsi").textContent = "RSI: " + h4.rsi14;
-        document.getElementById("h1rsi").textContent = "RSI: " + h1.rsi14;
-        document.getElementById("m15rsi").textContent = "RSI: " + m15.rsi14;
-
-        function structureText(tf, label) {
-            const s = tf.market_structure;
-
-            return `
-                <div class="card">
-                    <b>${label}</b><br><br>
-                    High: ${s.high_structure}<br>
-                    Low: ${s.low_structure}<br>
-                    BOS: ${s.bos}<br>
-                    Swing High: ${s.swing_high}<br>
-                    Swing Low: ${s.swing_low}
-                </div>
-            `;
-        }
-
-        document.getElementById("structure").innerHTML =
-            structureText(h4, "H4") +
-            structureText(h1, "H1") +
-            structureText(m15, "M15");
-
-    } catch (error) {
-        document.getElementById("price").textContent = "Data unavailable";
-        document.getElementById("updated").textContent = error.message;
-    }
+const $ = id => document.getElementById(id);
+const fmt = value => value == null || !Number.isFinite(Number(value)) ? "--" : Number(value).toLocaleString("en-US",{maximumFractionDigits:2});
+function setTrend(id, trend){
+  const el=$(id); el.textContent=trend || "--";
+  el.className="trend "+(trend==="BULLISH"?"green":trend==="BEARISH"?"red":"yellow");
 }
-
-
+function setStatus(kind,label){
+  $("statusDot").className="dot "+kind;
+  $("statusText").textContent=label;
+}
+function clearSignal(message){
+  $("decision").textContent="WAIT"; $("decision").className="signal WAIT";
+  ["entry","stoploss","tp1","tp2","tp3","riskreward"].forEach(id=>$(id).textContent="--");
+  $("confidence").textContent="--%"; $("reason").textContent=message;
+}
+function renderStructure(tf,label){
+  const s=(tf && tf.market_structure)||{};
+  return `<div class="structure-card"><h3>${label}</h3>
+    <div class="struct-row"><span>High structure</span><b>${s.high_structure??"--"}</b></div>
+    <div class="struct-row"><span>Low structure</span><b>${s.low_structure??"--"}</b></div>
+    <div class="struct-row"><span>BOS</span><b>${s.bos??"--"}</b></div>
+    <div class="struct-row"><span>Swing high</span><b>${fmt(s.swing_high)}</b></div>
+    <div class="struct-row"><span>Swing low</span><b>${fmt(s.swing_low)}</b></div></div>`;
+}
+function renderTF(key,tf){
+  if(!tf) return;
+  setTrend(key,tf.trend);
+  $(key+"rsi").textContent="RSI 14: "+fmt(tf.rsi14 ?? tf.rsi);
+  $(key+"ema20").textContent=fmt(tf.ema20);
+  $(key+"ema50").textContent=fmt(tf.ema50);
+  $(key+"atr").textContent=fmt(tf.atr);
+}
+async function loadDashboard(){
+  try{
+    const [analysisResponse,priceResponse]=await Promise.all([
+      fetch("/btc-analysis",{cache:"no-store"}),
+      fetch("/btc-price",{cache:"no-store"})
+    ]);
+    if(!analysisResponse.ok) throw new Error("Analysis API HTTP "+analysisResponse.status);
+    const data=await analysisResponse.json();
+    if(data.data_status!=="LIVE" || !data.timeframes) throw new Error(data.error||"Data analysis tidak LIVE");
+    const frames=data.timeframes;
+    renderTF("h4",frames.H4); renderTF("h1",frames.H1); renderTF("m15",frames.M15);
+    const p=priceResponse.ok?await priceResponse.json():null;
+    const price=p && p.price!=null?p.price:(frames.M15 && frames.M15.price);
+    $("price").textContent=price==null?"--":"$"+fmt(price);
+    $("updated").textContent="Updated "+new Date().toLocaleTimeString();
+    $("decision").textContent=data.decision||"WAIT";
+    $("decision").className="signal "+(data.decision==="LONG"?"LONG":data.decision==="SHORT"?"SHORT":"WAIT");
+    $("confidence").textContent=data.confidence_percent==null?"--%":fmt(data.confidence_percent)+"%";
+    $("reason").textContent=data.signal_reason||"Tiada sebab signal dibekalkan.";
+    $("entry").textContent=fmt(data.entry);
+    $("stoploss").textContent=fmt(data.stop_loss);
+    const t=data.take_profits||{};
+    $("tp1").textContent=fmt(t.TP1); $("tp2").textContent=fmt(t.TP2); $("tp3").textContent=fmt(t.TP3);
+    $("riskreward").textContent=data.risk_reward||"--";
+    $("structure").innerHTML=renderStructure(frames.H4,"H4")+renderStructure(frames.H1,"H1")+renderStructure(frames.M15,"M15");
+    setStatus("live","BINGX DATA LIVE");
+    $("dataState").textContent="Source: "+(p?.source||data.exchange||"BINGX SPOT")+" · Auto refresh 30s";
+  }catch(error){
+    setStatus("error","DATA ERROR");
+    $("price").textContent="Unavailable";
+    $("updated").textContent="Tidak dapat mengesahkan data terkini";
+    clearSignal("Analisis tidak tersedia. Signal lama dipadam untuk mengelakkan penggunaan data lapuk.");
+    ["h4","h1","m15"].forEach(id=>setTrend(id,"--"));
+    ["h4rsi","h1rsi","m15rsi","h4ema20","h4ema50","h4atr","h1ema20","h1ema50","h1atr","m15ema20","m15ema50","m15atr"].forEach(id=>$(id).textContent="--");
+    $("structure").innerHTML='<div class="error-box">Market structure tidak tersedia kerana data analisis gagal dimuatkan.</div>';
+    $("dataState").textContent=error.message;
+  }
+}
 loadDashboard();
-setInterval(loadDashboard, 30000);
+setInterval(loadDashboard,30000);
 </script>
-
 </body>
 </html>
