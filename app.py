@@ -37,17 +37,38 @@ def safe_float(value, default=None):
         return number if math.isfinite(number) else default
     except (TypeError, ValueError):
         return default
+CANDLE_CACHE = {}
+
+CANDLE_CACHE_TTL = {
+    "15m": 60,
+    "1h": 300,
+    "4h": 900
+}
 
 
 def get_candles(interval="15m", limit=500):
-    """Historical BTCUSDT spot candles. Last forming candle is excluded."""
+    """Fetch Binance candles with per-timeframe cache."""
+
+    cache_key = (interval, limit)
+    now = time.time()
+
+    cached = CANDLE_CACHE.get(cache_key)
+
+    if cached and now - cached["time"] < CANDLE_CACHE_TTL.get(interval, 60):
+        return cached["candles"]
+
     query = urllib.parse.urlencode({
         "symbol": SYMBOL,
         "interval": interval,
         "limit": min(max(int(limit), 50), 1000),
     })
-    data = http_json(f"{BINANCE_SPOT}/api/v3/klines?{query}")
+
+    data = http_json(
+        f"{BINANCE_SPOT}/api/v3/klines?{query}"
+    )
+
     candles = []
+
     for row in data:
         candles.append({
             "time": int(row[0]) // 1000,
@@ -58,9 +79,17 @@ def get_candles(interval="15m", limit=500):
             "volume": float(row[5]),
             "close_time": int(row[6]),
         })
+
     if len(candles) > 1:
         candles = candles[:-1]
+
+    CANDLE_CACHE[cache_key] = {
+        "time": now,
+        "candles": candles
+    }
+
     return candles
+
 
 
 def ema_series(values, period):
