@@ -1,276 +1,107 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC AI Dashboard</title>
-
-    <style>
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            padding: 18px;
-            background: #0b1120;
-            color: #ffffff;
-            font-family: Arial, sans-serif;
-        }
-
-        .container {
-            max-width: 1000px;
-            margin: auto;
-        }
-
-        h1 {
-            font-size: 25px;
-        }
-
-        .subtitle {
-            color: #94a3b8;
-            font-size: 13px;
-        }
-
-        .card {
-            background: #172033;
-            border: 1px solid #29364d;
-            border-radius: 12px;
-            padding: 18px;
-            margin-top: 15px;
-        }
-
-        .price {
-            font-size: 32px;
-            font-weight: bold;
-            margin-top: 8px;
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-        }
-
-        .value {
-            font-size: 20px;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-
-        .muted {
-            color: #94a3b8;
-            font-size: 13px;
-        }
-
-        .green {
-            color: #22c55e;
-        }
-
-        .red {
-            color: #ef4444;
-        }
-
-        .yellow {
-            color: #facc15;
-        }
-
-        iframe {
-            width: 100%;
-            height: 420px;
-            border: 0;
-            border-radius: 8px;
-        }
-
-        @media (max-width: 600px) {
-            .grid {
-                grid-template-columns: 1fr;
-            }
-
-            iframe {
-                height: 350px;
-            }
-        }
-    </style>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTC AI Dashboard</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:18px;background:#0b1120;color:#fff;font-family:Arial,sans-serif}
+.container{max-width:1000px;margin:auto}
+h1{font-size:25px}.subtitle,.muted{color:#94a3b8;font-size:13px}
+.card{background:#172033;border:1px solid #29364d;border-radius:12px;padding:18px;margin-top:15px}
+.price{font-size:32px;font-weight:bold;margin-top:8px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.value{font-size:20px;font-weight:bold;margin-top:10px;overflow-wrap:anywhere}
+.green{color:#22c55e}.red{color:#ef4444}.yellow{color:#facc15}
+iframe{width:100%;height:420px;border:0;border-radius:8px}
+.status{display:inline-block;padding:5px 9px;border-radius:6px;background:#263449;color:#cbd5e1;font-size:12px;margin-top:8px}
+@media(max-width:600px){.grid{grid-template-columns:1fr}iframe{height:350px}}
+</style>
 <link rel="icon" type="image/png" href="/static/tradingview-ai.png">
 <link rel="apple-touch-icon" href="/static/tradingview-ai.png">
-
 </head>
-
 <body>
 <div class="container">
+<h1>BTC AI Dashboard</h1>
+<div class="subtitle">BINGX SPOT · BTC-USDT DATA · LIVE MARKET MONITOR</div>
 
-    <h1>BTC AI Dashboard</h1>
-    <div class="subtitle">BINANCE · BTCUSDT · LIVE MARKET MONITOR</div>
+<div class="card">
+<div class="muted">BITCOIN PRICE — BINGX SPOT</div>
+<div class="price" id="price">Loading...</div>
+<div class="muted" id="updated">Waiting for data...</div>
+<div class="status" id="feedstatus">CONNECTING TO BINGX</div>
+</div>
 
-    <div class="card">
-        <div class="muted">BITCOIN PRICE</div>
-        <div class="price" id="price">Loading...</div>
-        <div class="muted" id="updated">Waiting for data...</div>
-    </div>
+<div class="card">
+<h3>BTCUSDT Chart — TradingView</h3>
+<iframe src="https://s.tradingview.com/widgetembed/?symbol=BINANCE%3ABTCUSDT&interval=15&theme=dark&style=1&locale=en&hide_top_toolbar=true&allow_symbol_change=false"></iframe>
+<div class="muted">Carta TradingView dikekalkan berasingan. Harga/indikator dashboard datang daripada BingX Spot.</div>
+</div>
 
-    <div class="card">
-        <h3>BTCUSDT Chart</h3>
+<div class="card"><h3>Market Decision</h3><div class="value yellow" id="decision">Loading...</div><div class="muted" id="reason">--</div></div>
 
-        <iframe
-            src="https://s.tradingview.com/widgetembed/?symbol=BINANCE%3ABTCUSDT&interval=15&theme=dark&style=1&locale=en&hide_top_toolbar=true&allow_symbol_change=false">
-        </iframe>
-    </div>
+<div class="grid">
+<div class="card"><h3>Entry Price</h3><div class="value" id="entry">--</div></div>
+<div class="card"><h3>Stop Loss</h3><div class="value red" id="stoploss">--</div></div>
+<div class="card"><h3>Take Profit 1</h3><div class="value green" id="tp1">--</div></div>
+<div class="card"><h3>Take Profit 2</h3><div class="value green" id="tp2">--</div></div>
+<div class="card"><h3>Take Profit 3</h3><div class="value green" id="tp3">--</div></div>
+<div class="card"><h3>Risk Reward</h3><div class="value" id="riskreward">--</div></div>
+</div>
 
-    <div class="card">
-        <h3>Market Decision</h3>
-        <div class="value" id="decision">Loading...</div>
-    </div>
-    
-    <div class="grid">
+<div class="grid">
+<div class="card"><h3>H4 Trend</h3><div class="value" id="h4">--</div><div class="muted" id="h4rsi">RSI: --</div></div>
+<div class="card"><h3>H1 Trend</h3><div class="value" id="h1">--</div><div class="muted" id="h1rsi">RSI: --</div></div>
+<div class="card"><h3>M15 Trend</h3><div class="value" id="m15">--</div><div class="muted" id="m15rsi">RSI: --</div></div>
+</div>
 
-        <div class="card">
-            <h3>Entry Price</h3>
-            <div class="value" id="entry">--</div>
-        </div>
-
-        <div class="card">
-            <h3>Stop Loss</h3>
-            <div class="value" id="stoploss">--</div>
-        </div>
-
-        <div class="card">
-            <h3>Take Profit</h3>
-            <div class="value" id="takeprofit">--</div>
-        </div>
-
-        <div class="card">
-            <h3>Risk Reward</h3>
-            <div class="value" id="riskreward">--</div>
-        </div>
-
-        <div class="card">
-            <h3>Signal Reason</h3>
-            <div class="value" id="reason">--</div>
-        </div>
-
-    </div>
-
-
-    <div class="grid">
-
-        <div class="card">
-            <h3>H4 Trend</h3>
-            <div class="value" id="h4">--</div>
-            <div class="muted" id="h4rsi">RSI: --</div>
-        </div>
-
-        <div class="card">
-            <h3>H1 Trend</h3>
-            <div class="value" id="h1">--</div>
-            <div class="muted" id="h1rsi">RSI: --</div>
-        </div>
-
-        <div class="card">
-            <h3>M15 Trend</h3>
-            <div class="value" id="m15">--</div>
-            <div class="muted" id="m15rsi">RSI: --</div>
-        </div>
-
-    </div>
-
-    <div class="card">
-        <h3>Market Structure</h3>
-        <div id="structure">Loading...</div>
-    </div>
-
+<div class="card"><h3>Market Structure</h3><div id="structure">Loading...</div></div>
+<div class="card"><h3>Data Notes</h3><div class="muted">Spot candles and indicators: BingX Spot BTC-USDT. Futures funding/open interest: OKX Futures endpoint. These are different markets and must not be treated as identical. Backtest is a Spot-candle proxy, not a live Futures simulation.</div></div>
 </div>
 
 <script>
-
-async function loadDashboard() {
-    try {
-        const response = await fetch("/btc-analysis");
-
-        if (!response.ok) {
-            throw new Error("Server error: " + response.status);
-        }
-
-        const data = await response.json();
-
-        const h4 = data.timeframes.H4;
-        const h1 = data.timeframes.H1;
-        const m15 = data.timeframes.M15;
-
-        document.getElementById("price").textContent =
-            "$" + h4.price.toLocaleString("en-US");
-
-        document.getElementById("updated").textContent =
-            "Last updated: " + new Date().toLocaleTimeString();
-
-        const decision = document.getElementById("decision");
-        decision.textContent = data.decision;
-        decision.className = "value " +
-            (data.decision === "LONG" ? "green" :
-             data.decision === "SHORT" ? "red" : "yellow");
-
-        document.getElementById("entry").textContent =
-            data.entry == null ? "--" : data.entry;
-
-        document.getElementById("stoploss").textContent =
-            data.stop_loss == null ? "--" : data.stop_loss;
-
-        document.getElementById("takeprofit").textContent =
-            data.take_profit == null ? "--" : data.take_profit;
-
-        document.getElementById("riskreward").textContent =
-            data.risk_reward || "--";
-
-        document.getElementById("reason").textContent =
-            data.signal_reason || "--";
-
-        function showTrend(id, trend) {
-            const element = document.getElementById(id);
-            element.textContent = trend;
-            element.className = "value " +
-                (trend === "BULLISH" ? "green" :
-                 trend === "BEARISH" ? "red" : "yellow");
-        }
-
-        showTrend("h4", h4.trend);
-        showTrend("h1", h1.trend);
-        showTrend("m15", m15.trend);
-
-        document.getElementById("h4rsi").textContent = "RSI: " + h4.rsi14;
-        document.getElementById("h1rsi").textContent = "RSI: " + h1.rsi14;
-        document.getElementById("m15rsi").textContent = "RSI: " + m15.rsi14;
-
-        function structureText(tf, label) {
-            const s = tf.market_structure;
-
-            return `
-                <div class="card">
-                    <b>${label}</b><br><br>
-                    High: ${s.high_structure}<br>
-                    Low: ${s.low_structure}<br>
-                    BOS: ${s.bos}<br>
-                    Swing High: ${s.swing_high}<br>
-                    Swing Low: ${s.swing_low}
-                </div>
-            `;
-        }
-
-        document.getElementById("structure").innerHTML =
-            structureText(h4, "H4") +
-            structureText(h1, "H1") +
-            structureText(m15, "M15");
-
-    } catch (error) {
-        document.getElementById("price").textContent = "Data unavailable";
-        document.getElementById("updated").textContent = error.message;
-    }
+const $ = id => document.getElementById(id);
+function setText(id,value){$(id).textContent=value==null?'--':value}
+function showTrend(id,trend){
+  const el=$(id);el.textContent=trend||'--';
+  el.className='value '+(trend==='BULLISH'?'green':trend==='BEARISH'?'red':'yellow');
 }
-
-
-loadDashboard();
-setInterval(loadDashboard, 30000);
+function clearSignal(message){
+  setText('decision','WAIT — DATA ERROR');$('decision').className='value yellow';
+  ['entry','stoploss','tp1','tp2','tp3','riskreward'].forEach(id=>setText(id,'--'));
+  setText('reason',message||'Data BingX tidak tersedia. Jangan gunakan signal sebelumnya.');
+  ['h4','h1','m15'].forEach(id=>showTrend(id,'--'));
+  ['h4rsi','h1rsi','m15rsi'].forEach(id=>setText(id,'RSI: --'));
+  setText('structure','Data structure tidak tersedia.');
+}
+async function loadDashboard(){
+  try{
+    const response=await fetch('/btc-analysis',{cache:'no-store'});
+    const data=await response.json();
+    if(!response.ok||data.data_status==='ERROR'||!data.timeframes)throw new Error(data.error||'BingX data unavailable');
+    const {H4:h4,H1:h1,M15:m15}=data.timeframes;
+    setText('price','$'+Number(m15.price).toLocaleString('en-US',{maximumFractionDigits:2}));
+    setText('updated','Last candle: '+new Date(m15.candle_time*1000).toLocaleString());
+    setText('feedstatus','BINGX SPOT · '+(data.data_status||'LIVE'));
+    setText('decision',data.decision);
+    $('decision').className='value '+(data.decision==='LONG'?'green':data.decision==='SHORT'?'red':'yellow');
+    setText('entry',data.entry);setText('stoploss',data.stop_loss);
+    const t=data.take_profits||{};setText('tp1',t.TP1);setText('tp2',t.TP2);setText('tp3',t.TP3);
+    setText('riskreward',data.risk_reward);setText('reason',data.signal_reason);
+    showTrend('h4',h4.trend);showTrend('h1',h1.trend);showTrend('m15',m15.trend);
+    setText('h4rsi','RSI: '+h4.rsi14);setText('h1rsi','RSI: '+h1.rsi14);setText('m15rsi','RSI: '+m15.rsi14);
+    function structure(tf,label){
+      const s=tf.market_structure;
+      return `<div class="card"><b>${label}</b><br><br>High: ${s.high_structure}<br>Low: ${s.low_structure}<br>BOS: ${s.bos}<br>Swing High: ${s.swing_high}<br>Swing Low: ${s.swing_low}</div>`;
+    }
+    $('structure').innerHTML=structure(h4,'H4')+structure(h1,'H1')+structure(m15,'M15');
+  }catch(error){
+    setText('price','Data unavailable');setText('updated',error.message);
+    setText('feedstatus','BINGX FEED ERROR');clearSignal(error.message);
+  }
+}
+loadDashboard();setInterval(loadDashboard,30000);
 </script>
-
 </body>
 </html>
